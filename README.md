@@ -3,7 +3,7 @@
 
 ## 📖 Documentation
 
-- [Software Requirements Specification (SRS)](docs/SRS.md)
+- [Software Requirements Specification (SRS)](docs/SRS_University_Super_App.md)
 - [Database Design (ERD) & API List](docs/ERD_and_API.md)
 
 ---
