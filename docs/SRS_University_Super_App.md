@@ -138,12 +138,11 @@ Pages: Login, Dashboard (per role), Profile, Courses, Timetable, Announcements, 
 ### 5.3 Technology Stack
 | Layer | Technology |
 |---|---|
-| Frontend | React.js, Vite, React Router, Axios |
-| Backend | Node.js, Express |
+| Framework | Next.js (App Router) — full-stack, frontend + backend API routes |
 | Database | MongoDB, Mongoose |
-| Auth | JWT, bcrypt |
+| Auth | Auth.js (NextAuth) |
 | Tools | Git, GitHub, Postman, ESLint, Prettier |
-| Deployment | Vercel (frontend), Render (backend), MongoDB Atlas |
+| Deployment | Vercel (frontend + API routes), MongoDB Atlas |
 
 ---
 
