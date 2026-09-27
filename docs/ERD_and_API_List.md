@@ -1,6 +1,10 @@
 # Database Design (ERD) & API List
 ## University Super App
 
+**Stack:** Next.js (App Router) — all API endpoints below are implemented as
+Next.js Route Handlers under `client/app/api/`, not a separate Express server.
+Example: `GET /api/courses` lives at `client/app/api/courses/route.ts`.
+
 ---
 
 ## 1. Entity Relationship Diagram
@@ -96,16 +100,17 @@ erDiagram
 
 ## 2. API List
 
-Base URL: `/api`
-All protected routes require header: `Authorization: Bearer <token>`
+Base URL: `/api` (relative to the deployed Next.js app, e.g. `https://<app>.vercel.app/api`)
+All protected routes are guarded by an Auth.js session — no manual token header needed
+in the browser; server-side handlers read the session via `auth()`.
 
-### 2.1 Auth
-| Method | Endpoint | Access | Body / Params | Response |
-|---|---|---|---|---|
-| POST | `/auth/register` | Admin only | name, email, password, role | user object |
-| POST | `/auth/login` | Public | email, password | token, user |
-| GET | `/auth/me` | Logged-in user | — | current user |
-| POST | `/auth/change-password` | Logged-in user | oldPassword, newPassword | success message |
+### 2.1 Auth (Auth.js)
+| Method | Endpoint | Access | Notes |
+|---|---|---|---|
+| GET/POST | `/auth/[...nextauth]` | Public | Handled entirely by Auth.js (sign in, sign out, session, callback) |
+| POST | `/auth/register` | Admin only | Custom route: name, email, password, role → creates user (password hashed) |
+| GET | `/auth/me` | Logged-in user | Returns current session user |
+| POST | `/auth/change-password` | Logged-in user | oldPassword, newPassword → success message |
 
 ### 2.2 Users / Profile
 | Method | Endpoint | Access | Body / Params | Response |
