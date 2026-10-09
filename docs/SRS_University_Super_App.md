@@ -29,7 +29,7 @@ Development team, mentor, and testers.
 ## 2. Overall Description
 
 ### 2.1 Product Perspective
-A standalone client-server web app: React frontend, Node.js/Express REST backend, MongoDB database.
+A standalone full-stack web app built with Next.js (App Router): UI and backend logic (Route Handlers) in one codebase, Auth.js for authentication, MongoDB database.
 
 ### 2.2 User Classes
 | User | Description |
