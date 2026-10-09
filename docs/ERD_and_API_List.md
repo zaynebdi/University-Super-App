@@ -94,7 +94,9 @@ erDiagram
 - One **Teacher** teaches many **Courses**; one **Course** has one **Teacher**.
 - **Enrollment** is the join table between **Student** and **Course** (many-to-many).
 - One **Course** has many **Timetable** slots, **Attendance** records and **Results**.
-- **Announcement** can be posted by any user with role `teacher` or `admin`.
+- **Announcement.postedBy** references **User** directly.
+- `studentId` / `teacherId` fields in **Enrollment**, **Timetable**, **Attendance** and **Result** reference the **Student** / **Teacher** collections (not User directly).
+- **User** also carries `phone`, `photo` and `isActive` (used for soft-delete via `DELETE /api/users/:id`).
 
 ---
 
@@ -118,7 +120,10 @@ in the browser; server-side handlers read the session via `auth()`.
 | GET | `/users/:id` | Self or Admin | — | user profile |
 | PUT | `/users/:id` | Self or Admin | phone, photo, etc. | updated user |
 | GET | `/users` | Admin only | ?role= | list of users |
-| DELETE | `/users/:id` | Admin only | — | success message |
+| DELETE | `/users/:id` | Admin only | — | soft delete — sets `isActive: false` |
+| GET | `/students/:id` | Self or Admin | — | student profile |
+| GET | `/teachers` | Admin | — | list of teachers |
+| GET | `/teachers/:id` | Self or Admin | — | teacher profile |
 
 ### 2.3 Courses
 | Method | Endpoint | Access | Body / Params | Response |
