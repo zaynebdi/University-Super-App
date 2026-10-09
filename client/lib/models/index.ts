@@ -1,0 +1,9 @@
+export { User, type UserDoc } from "./User";
+export { Student, type StudentDoc } from "./Student";
+export { Teacher, type TeacherDoc } from "./Teacher";
+export { Course, type CourseDoc } from "./Course";
+export { Enrollment, type EnrollmentDoc } from "./Enrollment";
+export { Timetable, type TimetableDoc } from "./Timetable";
+export { Announcement, type AnnouncementDoc } from "./Announcement";
+export { Attendance, type AttendanceDoc } from "./Attendance";
+export { Result, type ResultDoc } from "./Result";
