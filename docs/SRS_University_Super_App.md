@@ -17,7 +17,7 @@ The system provides role-based access for Students, Teachers and Admins. Version
 | Term | Meaning |
 |---|---|
 | MVP | Minimum Viable Product, the first usable release |
-| JWT | JSON Web Token, used for authentication |
+| JWT | JSON Web Token; used internally by Auth.js to manage sessions |
 | REST API | HTTP-based interface between frontend and backend |
 | RBAC | Role-Based Access Control |
 
@@ -61,7 +61,7 @@ Modern browsers (Chrome, Edge, Firefox, Safari), desktop and mobile screens. Ser
 | FR-1.1 | The system shall allow users to log in with email and password. |
 | FR-1.2 | The system shall allow the Admin to create Student and Teacher accounts. |
 | FR-1.3 | The system shall hash passwords before storing them. |
-| FR-1.4 | The system shall issue a JWT on login and validate it on protected routes. |
+| FR-1.4 | The system shall manage login sessions via Auth.js (JWT-based) and validate them on protected routes. |
 | FR-1.5 | The system shall restrict features according to user role (RBAC). |
 | FR-1.6 | The system shall allow users to log out and change their password. |
 
@@ -116,7 +116,7 @@ Modern browsers (Chrome, Edge, Firefox, Safari), desktop and mobile screens. Ser
 | ID | Category | Requirement |
 |---|---|---|
 | NFR-1 | Performance | Pages shall load within 3 seconds; API responses within 1 second under normal load. |
-| NFR-2 | Security | Passwords hashed with bcrypt; JWT-protected routes; input validation on all endpoints; secrets kept in environment variables. |
+| NFR-2 | Security | Passwords hashed with bcrypt; routes protected via Auth.js sessions; input validation on all endpoints; secrets kept in environment variables (`client/.env.local`). |
 | NFR-3 | Usability | Responsive UI usable on mobile and desktop; clear error messages. |
 | NFR-4 | Reliability | Target availability of 99% during demo period; graceful error handling. |
 | NFR-5 | Maintainability | Modular code structure, ESLint/Prettier, README with setup steps. |
