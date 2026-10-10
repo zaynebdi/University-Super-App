@@ -11,7 +11,7 @@ export interface ICourse extends Document {
 
 const CourseSchema = new Schema<ICourse>(
   {
-    code: { type: String, required: true, unique: true, trim: true, index: true },
+    code: { type: String, required: true, trim: true },
     title: { type: String, required: true, trim: true },
     teacherId: {
       type: Schema.Types.ObjectId,
@@ -25,7 +25,10 @@ const CourseSchema = new Schema<ICourse>(
   { timestamps: true }
 );
 
-CourseSchema.index({ code: 1 }, { unique: true });
+CourseSchema.index(
+  { code: 1 },
+  { unique: true, collation: { locale: "en", strength: 2 } }
+);
 CourseSchema.index({ teacherId: 1 });
 CourseSchema.index({ semester: 1 });
 
