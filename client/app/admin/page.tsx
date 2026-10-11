@@ -48,7 +48,7 @@ function StatCard({
 export default function AdminDashboardPage() {
   const { data, loading, error } = useApiResource<DashboardData>(async () => {
     const [users, teachers, courses, announcements] = await Promise.all([
-      api.users.list(),
+      api.users.list({ pageSize: 50 }),
       api.teachers.list(),
       api.courses.list(),
       api.announcements.list(),
@@ -72,7 +72,7 @@ export default function AdminDashboardPage() {
     );
   }
 
-  const students = data.users.filter((u) => u.role === "student").length;
+  const students = data.users.users.filter((u) => u.role === "student").length;
 
   return (
     <div className="mx-auto max-w-375">

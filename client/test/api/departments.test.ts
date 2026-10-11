@@ -14,22 +14,28 @@ vi.mock("@/lib/models", () => ({
     findById: vi.fn(),
     findOne: vi.fn(),
     findByIdAndUpdate: vi.fn(),
+    findByIdAndDelete: vi.fn(),
     create: vi.fn(),
+  },
+  Field: {
+    countDocuments: vi.fn(),
   },
   Course: {
     find: vi.fn(),
+    countDocuments: vi.fn(),
   },
 }));
 
 import { GET as getDepartments, POST as createDepartment } from "@/app/api/departments/route";
 import { PUT as updateDepartment, DELETE as deleteDepartment } from "@/app/api/departments/[id]/route";
 import { auth } from "@/lib/auth-server";
-import { Department, Course } from "@/lib/models";
+import { Department, Field, Course } from "@/lib/models";
 
 const mockAuth = vi.mocked(auth) as unknown as {
   mockResolvedValue: (value: unknown) => void;
 };
 const mockDepartment = vi.mocked(Department);
+const mockField = vi.mocked(Field);
 const mockCourse = vi.mocked(Course);
 
 const ADMIN = "aaaaaaaaaaaaaaaaaaaaaaaa";
@@ -145,6 +151,18 @@ describe("Departments API", () => {
       const res = await getDepartments(createMockRequest("http://localhost/api/departments"));
       expect(res.status).toBe(500);
     });
+
+    it("only exposes the department admin's own department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: ADMIN, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      mockDepartment.find.mockReturnValue(chainLean([departmentLean()]));
+      mockCourse.find.mockReturnValue(chainSelectLean([]));
+
+      const res = await getDepartments(createMockRequest("http://localhost/api/departments"));
+      expect(res.status).toBe(200);
+      expect(mockDepartment.find).toHaveBeenCalledWith({ _id: DEPT_ID });
+    });
   });
 
   describe("POST /api/departments", () => {
@@ -202,6 +220,17 @@ describe("Departments API", () => {
         createMockRequest("http://localhost/api/departments", "POST", { name: "Math", code: "MT" })
       );
       expect(res.status).toBe(409);
+    });
+
+    it("returns 403 for a department admin", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: ADMIN, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      const res = await createDepartment(
+        createMockRequest("http://localhost/api/departments", "POST", { name: "Math", code: "MT" })
+      );
+      expect(res.status).toBe(403);
+      expect(mockDepartment.create).not.toHaveBeenCalled();
     });
   });
 
@@ -266,6 +295,18 @@ describe("Departments API", () => {
         { new: true }
       );
     });
+
+    it("returns 403 for a department admin", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: ADMIN, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      const res = await updateDepartment(
+        createMockRequest("http://localhost/api/departments/" + DEPT_ID, "PUT", { name: "New" }),
+        { params: Promise.resolve({ id: DEPT_ID }) }
+      );
+      expect(res.status).toBe(403);
+      expect(mockDepartment.findByIdAndUpdate).not.toHaveBeenCalled();
+    });
   });
 
   describe("DELETE /api/departments/:id", () => {
@@ -278,9 +319,18 @@ describe("Departments API", () => {
       expect(res.status).toBe(403);
     });
 
+    it("returns 400 for an invalid id", async () => {
+      mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+      const res = await deleteDepartment(
+        createMockRequest("http://localhost/api/departments/nope", "DELETE"),
+        { params: Promise.resolve({ id: "nope" }) }
+      );
+      expect(res.status).toBe(400);
+    });
+
     it("returns 404 when the department does not exist", async () => {
       mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
-      mockDepartment.findByIdAndUpdate.mockReturnValue(chainLean(null));
+      mockDepartment.findById.mockReturnValue(chainLean(null));
       const res = await deleteDepartment(
         createMockRequest("http://localhost/api/departments/" + DEPT_ID, "DELETE"),
         { params: Promise.resolve({ id: DEPT_ID }) }
@@ -288,19 +338,63 @@ describe("Departments API", () => {
       expect(res.status).toBe(404);
     });
 
-    it("deactivates the department (soft delete)", async () => {
+    it("returns 409 when the department still has fields", async () => {
       mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
-      mockDepartment.findByIdAndUpdate.mockReturnValue(chainLean(departmentLean({ isActive: false })));
+      mockDepartment.findById.mockReturnValue(chainLean(departmentLean()));
+      mockField.countDocuments.mockResolvedValue(2);
+      mockCourse.countDocuments.mockResolvedValue(0);
+      const res = await deleteDepartment(
+        createMockRequest("http://localhost/api/departments/" + DEPT_ID, "DELETE"),
+        { params: Promise.resolve({ id: DEPT_ID }) }
+      );
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.message).toContain("2 fields");
+      expect(mockDepartment.findByIdAndDelete).not.toHaveBeenCalled();
+    });
+
+    it("returns 409 when the department still has courses", async () => {
+      mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+      mockDepartment.findById.mockReturnValue(chainLean(departmentLean()));
+      mockField.countDocuments.mockResolvedValue(0);
+      mockCourse.countDocuments.mockResolvedValue(3);
+      const res = await deleteDepartment(
+        createMockRequest("http://localhost/api/departments/" + DEPT_ID, "DELETE"),
+        { params: Promise.resolve({ id: DEPT_ID }) }
+      );
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.message).toContain("3 courses");
+      expect(mockDepartment.findByIdAndDelete).not.toHaveBeenCalled();
+    });
+
+    it("hard-deletes a department with no children", async () => {
+      mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+      mockDepartment.findById.mockReturnValue(chainLean(departmentLean()));
+      mockField.countDocuments.mockResolvedValue(0);
+      mockCourse.countDocuments.mockResolvedValue(0);
+      mockDepartment.findByIdAndDelete.mockResolvedValue(departmentLean() as never);
+
       const res = await deleteDepartment(
         createMockRequest("http://localhost/api/departments/" + DEPT_ID, "DELETE"),
         { params: Promise.resolve({ id: DEPT_ID }) }
       );
       expect(res.status).toBe(200);
-      expect(mockDepartment.findByIdAndUpdate).toHaveBeenCalledWith(
-        DEPT_ID,
-        { isActive: false },
-        { new: true }
+      const json = await res.json();
+      expect(json.data.message).toBe("Department deleted successfully");
+      expect(mockDepartment.findByIdAndDelete).toHaveBeenCalledWith(DEPT_ID);
+    });
+
+    it("returns 403 for a department admin", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: ADMIN, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      const res = await deleteDepartment(
+        createMockRequest("http://localhost/api/departments/" + DEPT_ID, "DELETE"),
+        { params: Promise.resolve({ id: DEPT_ID }) }
       );
+      expect(res.status).toBe(403);
+      expect(mockDepartment.findByIdAndDelete).not.toHaveBeenCalled();
     });
   });
 });

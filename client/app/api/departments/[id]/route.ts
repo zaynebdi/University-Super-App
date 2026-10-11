@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
-import { Department, Course } from "@/lib/models";
+import { Department, Course, Field } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import {
   successResponse,
   errorResponse,
@@ -30,8 +31,11 @@ interface LeanCourse {
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
+    if (scope.assignedDepartment) {
+      return forbiddenResponse("Only a super admin can edit departments");
+    }
 
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) return errorResponse("Invalid department ID", 400);
@@ -94,22 +98,34 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
+    if (scope.assignedDepartment) {
+      return forbiddenResponse("Only a super admin can delete departments");
+    }
 
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) return errorResponse("Invalid department ID", 400);
 
     await dbConnect();
 
-    const department = await Department.findByIdAndUpdate(
-      id,
-      { isActive: false },
-      { new: true }
-    ).lean();
+    const department = await Department.findById(id).lean();
     if (!department) return notFoundResponse("Department not found");
 
-    return successResponse({ message: "Department deactivated successfully" });
+    const [fieldCount, courseCount] = (await Promise.all([
+      Field.countDocuments({ departmentId: id }),
+      Course.countDocuments({ departmentId: id }),
+    ])) as [number, number];
+
+    if (fieldCount > 0 || courseCount > 0) {
+      return conflictResponse(
+        `Cannot delete this department because it still has ${fieldCount} field${fieldCount === 1 ? "" : "s"} and ${courseCount} course${courseCount === 1 ? "" : "s"}. Move them to another department before deleting.`
+      );
+    }
+
+    await Department.findByIdAndDelete(id);
+
+    return successResponse({ message: "Department deleted successfully" });
   } catch (error) {
     console.error("DELETE /api/departments/:id error:", error);
     return serverErrorResponse();

@@ -47,8 +47,32 @@ export type UserDTO = {
   phone?: string;
   photo?: string;
   isActive?: boolean;
+  departmentId?: string | null;
+  department?: string;
+  fieldId?: string | null;
+  rollNo?: string;
+  semester?: number;
+  designation?: string | null;
+  assignedDepartmentId?: string | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type UsersListParams = {
+  role?: "student" | "teacher" | "admin";
+  search?: string;
+  department?: string;
+  isActive?: boolean;
+  page?: number;
+  pageSize?: number;
+};
+
+export type UsersListResult = {
+  users: UserDTO[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 };
 
 export type DepartmentDTO = {
@@ -68,12 +92,32 @@ export type CourseDepartmentDTO = {
   code: string;
 } | null;
 
+export type CourseFieldDTO = {
+  id: string;
+  name: string;
+  code: string;
+} | null;
+
+export type FieldDTO = {
+  id: string;
+  name: string;
+  code: string;
+  departmentId: string | null;
+  isActive: boolean;
+  courseCount: number;
+  courses: { id: string; code: string; title: string }[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type StudentProfileDTO = {
   id: string;
   userId: string;
   rollNo: string;
   department: string;
   departmentId?: string | null;
+  fieldId?: string | null;
+  field?: { id: string; name: string; code: string } | null;
   semester: number;
   name: string;
   email: string;
@@ -114,6 +158,7 @@ export type CourseDTO = {
   creditHours: number;
   teacher: CourseTeacherDTO | null;
   department: CourseDepartmentDTO;
+  field: CourseFieldDTO;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -126,6 +171,7 @@ export type EnrolledCourseDTO = {
   creditHours: number;
   teacher: CourseTeacherDTO | null;
   department: CourseDepartmentDTO;
+  field: CourseFieldDTO;
   enrolledAt: string;
 };
 
@@ -212,6 +258,7 @@ export type CreateUserInput =
       password: string;
       role: "student";
       departmentId: string;
+      fieldId?: string;
       semester: number;
     }
   | {
@@ -222,6 +269,15 @@ export type CreateUserInput =
       departmentId: string;
       designation?: string;
       courseIds?: string[];
+    }
+  | {
+      name: string;
+      email: string;
+      password: string;
+      role: "admin";
+      // Department scope: omit/null for "All departments (super admin)".
+      departmentId?: string | null;
+      designation?: string;
     };
 
 export type RegisteredUserDTO = UserDTO & { rollNo?: string };
@@ -231,8 +287,16 @@ export type CreateCourseInput = {
   title: string;
   teacherId?: string | null;
   departmentId?: string | null;
+  fieldId?: string | null;
   semester: number;
   creditHours: number;
+};
+
+export type CreateFieldInput = {
+  name: string;
+  code: string;
+  departmentId: string;
+  isActive?: boolean;
 };
 
 export type CreateTimetableInput = {
@@ -264,10 +328,30 @@ export const api = {
       }),
   },
   users: {
-    list: (role?: string) =>
-      apiFetch<UserDTO[]>(`/api/users${role ? `?role=${role}` : ""}`),
+    list: (params?: UsersListParams) => {
+      const q = new URLSearchParams();
+      if (params?.role) q.set("role", params.role);
+      if (params?.search) q.set("search", params.search);
+      if (params?.department) q.set("department", params.department);
+      if (params?.isActive !== undefined) q.set("isActive", String(params.isActive));
+      if (params?.page) q.set("page", String(params.page));
+      if (params?.pageSize) q.set("pageSize", String(params.pageSize));
+      const qs = q.toString();
+      return apiFetch<UsersListResult>(`/api/users${qs ? `?${qs}` : ""}`);
+    },
     get: (id: string) => apiFetch<UserDTO>(`/api/users/${id}`),
-    update: (id: string, input: Partial<UserDTO>) =>
+    update: (
+      id: string,
+      input: {
+        name?: string;
+        email?: string;
+        role?: UserRole;
+        assignedDepartment?: string | null;
+        phone?: string;
+        photo?: string;
+        isActive?: boolean;
+      }
+    ) =>
       apiFetch<UserDTO>(`/api/users/${id}`, {
         method: "PUT",
         body: JSON.stringify(input),
@@ -278,10 +362,11 @@ export const api = {
   students: {
     me: () => apiFetch<StudentProfileDTO>("/api/students/me"),
     get: (id: string) => apiFetch<StudentProfileDTO>(`/api/students/${id}`),
-    list: (params?: { department?: string; departmentId?: string }) => {
+    list: (params?: { department?: string; departmentId?: string; fieldId?: string }) => {
       const q = new URLSearchParams();
       if (params?.department) q.set("department", params.department);
       if (params?.departmentId) q.set("departmentId", params.departmentId);
+      if (params?.fieldId) q.set("fieldId", params.fieldId);
       const qs = q.toString();
       return apiFetch<StudentProfileDTO[]>(`/api/students${qs ? `?${qs}` : ""}`);
     },
@@ -309,12 +394,47 @@ export const api = {
     remove: (id: string) =>
       apiFetch<{ message: string }>(`/api/departments/${id}`, { method: "DELETE" }),
   },
+  fields: {
+    list: (params?: { departmentId?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.departmentId) q.set("departmentId", params.departmentId);
+      const qs = q.toString();
+      return apiFetch<FieldDTO[]>(`/api/fields${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => apiFetch<FieldDTO>(`/api/fields/${id}`),
+    create: (input: CreateFieldInput) =>
+      apiFetch<FieldDTO>("/api/fields", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (id: string, input: Partial<CreateFieldInput>) =>
+      apiFetch<FieldDTO>(`/api/fields/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    remove: (id: string) =>
+      apiFetch<{ message: string }>(`/api/fields/${id}`, { method: "DELETE" }),
+    enroll: (id: string, studentIds: string[]) =>
+      apiFetch<{ enrolled: number; alreadyEnrolled: number }>(
+        `/api/fields/${id}/enroll`,
+        { method: "POST", body: JSON.stringify({ studentIds }) }
+      ),
+  },
+  academicData: {
+    loadDefault: () =>
+      apiFetch<{
+        created: { departments: number; fields: number; courses: number };
+        existed: { departments: number; fields: number; courses: number };
+        total: { departments: number; fields: number; courses: number };
+      }>("/api/academic-data", { method: "POST" }),
+  },
   courses: {
-    list: (params?: { semester?: number; teacherId?: string; departmentId?: string }) => {
+    list: (params?: { semester?: number; teacherId?: string; departmentId?: string; fieldId?: string }) => {
       const q = new URLSearchParams();
       if (params?.semester) q.set("semester", String(params.semester));
       if (params?.teacherId) q.set("teacherId", params.teacherId);
       if (params?.departmentId) q.set("departmentId", params.departmentId);
+      if (params?.fieldId) q.set("fieldId", params.fieldId);
       const qs = q.toString();
       return apiFetch<CourseDTO[]>(`/api/courses${qs ? `?${qs}` : ""}`);
     },

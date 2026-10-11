@@ -7,6 +7,12 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: "student" | "teacher" | "admin";
+  /**
+   * Department scope for department admins. `null`/missing means the admin is
+   * a super admin (all departments). Existing admins without this field stay
+   * super admins.
+   */
+  assignedDepartment?: Types.ObjectId | null;
   phone?: string;
   photo?: string;
   isActive: boolean;
@@ -29,6 +35,12 @@ const UserSchema = new Schema<IUser>(
       type: String,
       enum: ["student", "teacher", "admin"],
       required: true,
+      index: true,
+    },
+    assignedDepartment: {
+      type: Schema.Types.ObjectId,
+      ref: "Department",
+      default: null,
       index: true,
     },
     phone: { type: String, trim: true },

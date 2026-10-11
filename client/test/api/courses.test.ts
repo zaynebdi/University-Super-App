@@ -30,6 +30,9 @@ vi.mock("@/lib/models", () => ({
   Department: {
     findById: vi.fn(),
   },
+  Field: {
+    findById: vi.fn(),
+  },
   Student: {
     findById: vi.fn(),
   },
@@ -57,7 +60,7 @@ import { POST as enrollStudent } from "@/app/api/courses/[id]/enroll/route";
 import { GET as getCourseStudents } from "@/app/api/courses/[id]/students/route";
 import { auth } from "@/lib/auth-server";
 import mongoose from "mongoose";
-import { Course, Enrollment, Teacher, Department, Student, User, Timetable, Attendance, Result } from "@/lib/models";
+import { Course, Enrollment, Teacher, Department, Field, Student, User, Timetable, Attendance, Result } from "@/lib/models";
 
 const mockAuth = vi.mocked(auth) as unknown as {
   mockResolvedValue: (value: unknown) => void;
@@ -66,6 +69,7 @@ const mockCourse = vi.mocked(Course);
 const mockEnrollment = vi.mocked(Enrollment);
 const mockTeacher = vi.mocked(Teacher);
 const mockDepartment = vi.mocked(Department);
+const mockField = vi.mocked(Field);
 const mockStudent = vi.mocked(Student);
 const mockUser = vi.mocked(User);
 const mockTimetable = vi.mocked(Timetable);
@@ -81,6 +85,8 @@ const STUDENT_ID = "444444444444444444444444";
 const USER_SELF = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const USER_OTHER = "bbbbbbbbbbbbbbbbbbbbbbbb";
 const DEPARTMENT_ID = "777777777777777777777777";
+const DEPARTMENT_OTHER = "666666666666666666666666";
+const FIELD_ID = "555555555555555555555555";
 
 function createMockRequest(url: string, method = "GET", body?: unknown): Request {
   return new Request(url, { method, body: body ? JSON.stringify(body) : undefined });
@@ -202,6 +208,36 @@ describe("Courses API", () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
       const res = await getCourses(createMockRequest("http://localhost/api/courses?departmentId=nope"));
       expect(res.status).toBe(400);
+    });
+
+    it("filters by fieldId", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      mockCourse.find.mockReturnValue(chainPopulate([]));
+
+      await getCourses(createMockRequest(`http://localhost/api/courses?fieldId=${FIELD_ID}`));
+      expect(mockCourse.find).toHaveBeenCalledWith({ fieldId: FIELD_ID });
+    });
+
+    it("restricts a department admin to their own department's courses", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPARTMENT_ID },
+      } as any);
+      mockCourse.find.mockReturnValue(chainPopulate([courseLean()]));
+
+      const res = await getCourses(createMockRequest("http://localhost/api/courses"));
+      expect(res.status).toBe(200);
+      expect(mockCourse.find).toHaveBeenCalledWith({ departmentId: DEPARTMENT_ID });
+    });
+
+    it("returns 403 when a department admin filters another department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPARTMENT_ID },
+      } as any);
+
+      const res = await getCourses(
+        createMockRequest(`http://localhost/api/courses?departmentId=${DEPARTMENT_OTHER}`)
+      );
+      expect(res.status).toBe(403);
     });
 
     it("returns 500 on database error", async () => {
@@ -366,6 +402,80 @@ describe("Courses API", () => {
         })
       );
       expect(res.status).toBe(409);
+    });
+
+    it("creates a course with a field", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      mockDepartment.findById.mockReturnValue(lean({ _id: DEPARTMENT_ID }));
+      mockField.findById.mockReturnValue(
+        lean({ _id: FIELD_ID, departmentId: DEPARTMENT_ID })
+      );
+      mockCourse.findOne.mockReturnValue(chainCollation(null));
+      mockCourse.create.mockResolvedValue({ _id: COURSE_ID } as any);
+      mockCourse.findById.mockReturnValue(
+        chainLean(courseLean({ fieldId: { _id: FIELD_ID, name: "Software Engineering", code: "SE" } }))
+      );
+
+      const res = await createCourse(
+        createMockRequest("http://localhost/api/courses", "POST", {
+          code: "CS101",
+          title: "Intro to CS",
+          semester: 1,
+          creditHours: 3,
+          departmentId: DEPARTMENT_ID,
+          fieldId: FIELD_ID,
+        })
+      );
+      expect(res.status).toBe(201);
+      expect(mockCourse.create).toHaveBeenCalledWith(
+        expect.objectContaining({ fieldId: FIELD_ID })
+      );
+      const data = await res.json();
+      expect(data.data.field).toEqual({
+        id: FIELD_ID,
+        name: "Software Engineering",
+        code: "SE",
+      });
+    });
+
+    it("returns 404 when the field does not exist", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      mockDepartment.findById.mockReturnValue(lean({ _id: DEPARTMENT_ID }));
+      mockField.findById.mockReturnValue(lean(null));
+
+      const res = await createCourse(
+        createMockRequest("http://localhost/api/courses", "POST", {
+          code: "CS101",
+          title: "Intro to CS",
+          semester: 1,
+          creditHours: 3,
+          departmentId: DEPARTMENT_ID,
+          fieldId: FIELD_ID,
+        })
+      );
+      expect(res.status).toBe(404);
+      expect(mockCourse.create).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when the field does not belong to the department", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      mockDepartment.findById.mockReturnValue(lean({ _id: DEPARTMENT_ID }));
+      mockField.findById.mockReturnValue(
+        lean({ _id: FIELD_ID, departmentId: DEPARTMENT_OTHER })
+      );
+
+      const res = await createCourse(
+        createMockRequest("http://localhost/api/courses", "POST", {
+          code: "CS101",
+          title: "Intro to CS",
+          semester: 1,
+          creditHours: 3,
+          departmentId: DEPARTMENT_ID,
+          fieldId: FIELD_ID,
+        })
+      );
+      expect(res.status).toBe(400);
+      expect(mockCourse.create).not.toHaveBeenCalled();
     });
 
     it("returns 500 on database error", async () => {

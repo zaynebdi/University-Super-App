@@ -1,17 +1,22 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Teacher } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { successResponse, forbiddenResponse, serverErrorResponse } from "@/lib/api/response";
 
 export async function GET() {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
 
     await dbConnect();
 
-    const teachers = await Teacher.find()
+    const filter = scope.assignedDepartment
+      ? { departmentId: scope.assignedDepartment }
+      : {};
+
+    const teachers = await Teacher.find(filter)
       .populate("userId", "-password")
       .lean();
 
@@ -19,6 +24,7 @@ export async function GET() {
       id: t._id.toString(),
       userId: t.userId._id.toString(),
       department: t.department,
+      departmentId: t.departmentId ? t.departmentId.toString() : null,
       designation: t.designation,
       name: t.userId.name,
       email: t.userId.email,

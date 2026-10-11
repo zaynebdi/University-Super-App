@@ -6,6 +6,7 @@ export interface ICourse extends Document {
   title: string;
   teacherId: Types.ObjectId | null;
   departmentId: Types.ObjectId | null;
+  fieldId: Types.ObjectId | null;
   semester: number;
   creditHours: number;
 }
@@ -26,6 +27,12 @@ const CourseSchema = new Schema<ICourse>(
       default: null,
       index: true,
     },
+    fieldId: {
+      type: Schema.Types.ObjectId,
+      ref: "Field",
+      default: null,
+      index: true,
+    },
     semester: { type: Number, required: true, min: 1, max: 12, index: true },
     creditHours: { type: Number, required: true, min: 1, max: 6 },
   },
@@ -38,6 +45,7 @@ CourseSchema.index(
 );
 CourseSchema.index({ teacherId: 1 });
 CourseSchema.index({ departmentId: 1 });
+CourseSchema.index({ fieldId: 1 });
 CourseSchema.index({ semester: 1 });
 
 export const Course =

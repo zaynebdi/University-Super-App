@@ -26,7 +26,9 @@ const mockStudent = vi.mocked(Student);
 const ADMIN = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const STUDENT_ID = "111111111111111111111111";
 const DEPARTMENT_ID = "222222222222222222222222";
-const USER_ID = "333333333333333333333333";
+const OTHER_DEPARTMENT_ID = "333333333333333333333333";
+const FIELD_ID = "444444444444444444444444";
+const USER_ID = "555555555555555555555555";
 
 function createMockRequest(url: string): Request {
   return new Request(url);
@@ -46,6 +48,8 @@ function studentLean(overrides: Record<string, unknown> = {}) {
     rollNo: "CS-2026-001",
     department: "Computer Science",
     departmentId: DEPARTMENT_ID,
+    fieldId: null,
+    field: null,
     semester: 3,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -55,7 +59,9 @@ function studentLean(overrides: Record<string, unknown> = {}) {
 
 function chain(value: unknown) {
   return {
-    populate: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(value) }),
+    populate: vi.fn().mockReturnValue({
+      populate: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(value) }),
+    }),
   } as any;
 }
 
@@ -155,5 +161,77 @@ describe("GET /api/students", () => {
 
     const res = await getStudents(createMockRequest("http://localhost/api/students"));
     expect(res.status).toBe(500);
+  });
+
+  it("filters students by fieldId", async () => {
+    mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+    mockStudent.find.mockReturnValue(chain([studentLean()]));
+
+    const res = await getStudents(
+      createMockRequest(
+        `http://localhost/api/students?departmentId=${DEPARTMENT_ID}&fieldId=${FIELD_ID}`
+      )
+    );
+    expect(res.status).toBe(200);
+    expect(mockStudent.find).toHaveBeenCalledWith({
+      departmentId: DEPARTMENT_ID,
+      fieldId: FIELD_ID,
+    });
+  });
+
+  it("returns the populated field on each student", async () => {
+    mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+    mockStudent.find.mockReturnValue(
+      chain([
+        studentLean({
+          fieldId: FIELD_ID,
+          field: { _id: FIELD_ID, name: "Software Engineering", code: "SE" },
+        }),
+      ])
+    );
+
+    const res = await getStudents(createMockRequest("http://localhost/api/students"));
+    const json = await res.json();
+    expect(json.data[0].fieldId).toBe(FIELD_ID);
+    expect(json.data[0].field).toEqual({
+      id: FIELD_ID,
+      name: "Software Engineering",
+      code: "SE",
+    });
+  });
+
+  it("returns null field for students without a field (does not crash)", async () => {
+    mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+    mockStudent.find.mockReturnValue(chain([studentLean()]));
+
+    const res = await getStudents(createMockRequest("http://localhost/api/students"));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data[0].fieldId).toBe(null);
+    expect(json.data[0].field).toBe(null);
+  });
+
+  it("restricts a department admin to their own department", async () => {
+    mockAuth.mockResolvedValue({
+      user: { id: ADMIN, role: "admin", assignedDepartment: DEPARTMENT_ID },
+    } as any);
+    mockStudent.find.mockReturnValue(chain([studentLean()]));
+
+    const res = await getStudents(createMockRequest("http://localhost/api/students"));
+    expect(res.status).toBe(200);
+    expect(mockStudent.find).toHaveBeenCalledWith({ departmentId: DEPARTMENT_ID });
+  });
+
+  it("returns 403 when a department admin requests another department", async () => {
+    mockAuth.mockResolvedValue({
+      user: { id: ADMIN, role: "admin", assignedDepartment: DEPARTMENT_ID },
+    } as any);
+
+    const res = await getStudents(
+      createMockRequest(
+        `http://localhost/api/students?departmentId=${OTHER_DEPARTMENT_ID}`
+      )
+    );
+    expect(res.status).toBe(403);
   });
 });

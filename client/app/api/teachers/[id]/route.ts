@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { User, Teacher } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { Types } from "mongoose";
 
@@ -20,13 +21,23 @@ export async function GET(
     if (!(await validateId(id))) return errorResponse("Invalid teacher ID", 400);
 
     const sessionUser = session.user as { id: string; role: string };
+    const scope = getAdminScope(session);
     const isAdmin = sessionUser.role === "admin";
 
     await dbConnect();
 
     let teacher;
     if (isAdmin) {
-      teacher = await Teacher.findById(id).populate("userId", "-password").lean();
+      teacher = (await Teacher.findById(id)
+        .populate("userId", "-password")
+        .lean()) as unknown as { _id: Types.ObjectId; departmentId?: Types.ObjectId | null; userId: Types.ObjectId } | null;
+      if (
+        scope?.assignedDepartment &&
+        teacher &&
+        (!teacher.departmentId || teacher.departmentId.toString() !== scope.assignedDepartment)
+      ) {
+        return forbiddenResponse("You can only view teachers of your own department");
+      }
     } else {
       const user = await User.findById(sessionUser.id).lean();
       if (!user) return notFoundResponse("User not found");

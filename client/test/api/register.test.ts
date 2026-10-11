@@ -16,6 +16,9 @@ vi.mock("@/lib/models", () => ({
   Department: {
     findById: vi.fn(),
   },
+  Field: {
+    findById: vi.fn(),
+  },
   Student: {
     findOne: vi.fn(),
     create: vi.fn(),
@@ -43,7 +46,7 @@ vi.mock("bcryptjs", () => ({
 import { POST as register } from "@/app/api/auth/register/route";
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
-import { User, Department, Teacher, Course } from "@/lib/models";
+import { User, Department, Field, Teacher, Course } from "@/lib/models";
 import { createStudentWithRollNumber } from "@/lib/roll-number";
 
 const mockAuth = vi.mocked(auth) as unknown as {
@@ -52,6 +55,7 @@ const mockAuth = vi.mocked(auth) as unknown as {
 const mockDb = vi.mocked(dbConnect);
 const mockUser = vi.mocked(User);
 const mockDepartment = vi.mocked(Department);
+const mockField = vi.mocked(Field);
 const mockTeacher = vi.mocked(Teacher);
 const mockCourse = vi.mocked(Course);
 const mockCreateStudent = vi.mocked(createStudentWithRollNumber);
@@ -60,7 +64,9 @@ const ADMIN = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const STUDENT_ID = "bbbbbbbbbbbbbbbbbbbbbbbb";
 const TEACHER_ID = "cccccccccccccccccccccccc";
 const DEPARTMENT_ID = "dddddddddddddddddddddddd";
-const COURSE_ID = "eeeeeeeeeeeeeeeeeeeeeeee";
+const OTHER_DEPARTMENT_ID = "111111111111111111111111";
+const FIELD_ID = "eeeeeeeeeeeeeeeeeeeeeeee";
+const COURSE_ID = "999999999999999999999999";
 
 function createMockRequest(body?: unknown): Request {
   return new Request("http://localhost/api/auth/register", {
@@ -69,7 +75,7 @@ function createMockRequest(body?: unknown): Request {
   });
 }
 
-function createdUser(role: "student" | "teacher") {
+function createdUser(role: "student" | "teacher" | "admin") {
   return {
     _id: { toString: () => STUDENT_ID },
     name: "New User",
@@ -196,7 +202,9 @@ describe("POST /api/auth/register", () => {
       DEPARTMENT_ID,
       "SE",
       "Software Engineering",
-      3
+      3,
+      undefined,
+      null
     );
   });
 
@@ -242,7 +250,9 @@ describe("POST /api/auth/register", () => {
     const updateCall = (mockCourse.updateMany as ReturnType<typeof vi.fn>).mock
       .calls[0];
     expect(updateCall[0]).toEqual({ _id: { $in: [COURSE_ID] } });
-    expect(String(updateCall[1].teacherId)).toBe(TEACHER_ID);
+    expect(String((updateCall[1] as { $set: { teacherId: unknown } }).$set.teacherId)).toBe(
+      TEACHER_ID
+    );
   });
 
   it("does not assign courses from other departments", async () => {
@@ -275,5 +285,157 @@ describe("POST /api/auth/register", () => {
     expect(res.status).toBe(500);
     const data = await res.json();
     expect(data.success).toBe(false);
+  });
+
+  it("returns 403 when a department admin tries to create an admin", async () => {
+    mockAuth.mockResolvedValue({
+      user: { id: ADMIN, role: "admin", assignedDepartment: DEPARTMENT_ID },
+    } as any);
+    const res = await register(
+      createMockRequest({
+        name: "New Admin",
+        email: "admin@test.com",
+        password: "password123",
+        role: "admin",
+      })
+    );
+    expect(res.status).toBe(403);
+    expect(mockUser.create).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when a department admin adds a student to another department", async () => {
+    mockAuth.mockResolvedValue({
+      user: { id: ADMIN, role: "admin", assignedDepartment: DEPARTMENT_ID },
+    } as any);
+    const res = await register(
+      createMockRequest({ ...studentBody, departmentId: OTHER_DEPARTMENT_ID })
+    );
+    expect(res.status).toBe(403);
+    expect(mockUser.create).not.toHaveBeenCalled();
+  });
+
+  it("allows a department admin to create a student in their own department", async () => {
+    mockAuth.mockResolvedValue({
+      user: { id: ADMIN, role: "admin", assignedDepartment: DEPARTMENT_ID },
+    } as any);
+    mockDepartment.findById.mockReturnValue(chain(mockDepartmentRecord()));
+    mockUser.findOne.mockResolvedValue(null);
+    mockUser.create.mockResolvedValue(createdUser("student"));
+    mockCreateStudent.mockResolvedValue({
+      studentId: STUDENT_ID as never,
+      rollNo: "SE-2026-001",
+    } as never);
+
+    const res = await register(createMockRequest(studentBody));
+    expect(res.status).toBe(201);
+    expect(mockCreateStudent).toHaveBeenCalled();
+  });
+
+  it("lets a super admin create a super admin (no scope)", async () => {
+    mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+    mockUser.findOne.mockResolvedValue(null);
+    mockUser.create.mockResolvedValue(createdUser("admin"));
+
+    const res = await register(
+      createMockRequest({
+        name: "New Admin",
+        email: "admin@test.com",
+        password: "password123",
+        role: "admin",
+        designation: "System Administrator",
+      })
+    );
+    expect(res.status).toBe(201);
+    expect(mockUser.create).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "admin", assignedDepartment: null })
+    );
+    const json = await res.json();
+    expect(json.data.role).toBe("admin");
+    expect(json.data.assignedDepartmentId).toBe(null);
+  });
+
+  it("creates a department admin with the selected department scope", async () => {
+    mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+    mockDepartment.findById.mockReturnValue(chain(mockDepartmentRecord()));
+    mockUser.findOne.mockResolvedValue(null);
+    mockUser.create.mockResolvedValue({
+      _id: { toString: () => ADMIN },
+      name: "Dept Admin",
+      email: "deptadmin@test.com",
+      role: "admin",
+    } as never);
+
+    const res = await register(
+      createMockRequest({
+        name: "Dept Admin",
+        email: "deptadmin@test.com",
+        password: "password123",
+        role: "admin",
+        departmentId: DEPARTMENT_ID,
+        designation: "Department Coordinator",
+      })
+    );
+    expect(res.status).toBe(201);
+    expect(mockUser.create).toHaveBeenCalledWith(
+      expect.objectContaining({ assignedDepartment: DEPARTMENT_ID })
+    );
+    const json = await res.json();
+    expect(json.data.assignedDepartmentId).toBe(DEPARTMENT_ID);
+  });
+
+  it("returns 400 for an invalid admin designation", async () => {
+    mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+    const res = await register(
+      createMockRequest({
+        name: "New Admin",
+        email: "admin@test.com",
+        password: "password123",
+        role: "admin",
+        designation: "Supreme Leader",
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when the student field does not belong to the department", async () => {
+    mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+    mockDepartment.findById.mockReturnValue(chain(mockDepartmentRecord()));
+    mockField.findById.mockReturnValue(
+      chain({ _id: FIELD_ID, departmentId: OTHER_DEPARTMENT_ID, isActive: true } as any)
+    );
+
+    const res = await register(
+      createMockRequest({ ...studentBody, fieldId: FIELD_ID })
+    );
+    expect(res.status).toBe(400);
+    expect(mockUser.create).not.toHaveBeenCalled();
+  });
+
+  it("creates a student with a validated field", async () => {
+    mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+    mockDepartment.findById.mockReturnValue(chain(mockDepartmentRecord()));
+    mockField.findById.mockReturnValue(
+      chain({ _id: FIELD_ID, departmentId: DEPARTMENT_ID, isActive: true } as any)
+    );
+    mockUser.findOne.mockResolvedValue(null);
+    mockUser.create.mockResolvedValue(createdUser("student"));
+    mockCreateStudent.mockResolvedValue({
+      studentId: STUDENT_ID as never,
+      rollNo: "SE-2026-001",
+    } as never);
+
+    const res = await register(
+      createMockRequest({ ...studentBody, fieldId: FIELD_ID })
+    );
+    expect(res.status).toBe(201);
+    expect(mockCreateStudent).toHaveBeenCalledWith(
+      expect.anything(),
+      DEPARTMENT_ID,
+      "SE",
+      "Software Engineering",
+      3,
+      undefined,
+      FIELD_ID
+    );
   });
 });

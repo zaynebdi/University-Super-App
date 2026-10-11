@@ -5,6 +5,7 @@ declare module "next-auth" {
   interface User {
     id: string;
     role: "student" | "teacher" | "admin";
+    assignedDepartment?: string | null;
   }
 
   interface Session {
@@ -14,6 +15,7 @@ declare module "next-auth" {
       email?: string | null;
       image?: string | null;
       role: "student" | "teacher" | "admin";
+      assignedDepartment?: string | null;
     };
   }
 }
@@ -22,5 +24,6 @@ declare module "@auth/core/jwt" {
   interface JWT {
     id: string;
     role: "student" | "teacher" | "admin";
+    assignedDepartment?: string | null;
   }
 }

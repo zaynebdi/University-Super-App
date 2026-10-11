@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Course, Enrollment, Teacher } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { Types } from "mongoose";
 
@@ -26,13 +27,17 @@ export async function GET(
     if (!session?.user) return unauthorizedResponse();
 
     const sessionUser = session.user as { id: string; role: string };
+    const scope = getAdminScope(session);
 
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) return errorResponse("Invalid course ID", 400);
 
     await dbConnect();
 
-    const course = (await Course.findById(id).lean()) as unknown as { teacherId: Types.ObjectId | null } | null;
+    const course = (await Course.findById(id).lean()) as unknown as {
+      teacherId: Types.ObjectId | null;
+      departmentId?: Types.ObjectId | null;
+    } | null;
     if (!course) return notFoundResponse("Course not found");
 
     if (sessionUser.role === "teacher") {
@@ -42,6 +47,11 @@ export async function GET(
       }
     } else if (sessionUser.role !== "admin") {
       return forbiddenResponse("Access denied");
+    } else if (
+      scope?.assignedDepartment &&
+      (!course.departmentId || course.departmentId.toString() !== scope.assignedDepartment)
+    ) {
+      return forbiddenResponse("You can only view students of your own department's courses");
     }
 
     const enrollments = (await Enrollment.find({ courseId: id })

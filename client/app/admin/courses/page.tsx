@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Plus, Pencil, Trash2, Users } from "lucide-react";
 
 import {
@@ -10,6 +11,7 @@ import {
   type CourseDTO,
   type TeacherProfileDTO,
   type DepartmentDTO,
+  type FieldDTO,
 } from "@/lib/api-client";
 import { useApiResource } from "@/lib/use-api-resource";
 import {
@@ -22,6 +24,12 @@ import {
 } from "@/components/admin/ui";
 
 export default function AdminCoursesPage() {
+  const { data: session } = useSession();
+  const sessionUser = session?.user as
+    | { assignedDepartment?: string | null }
+    | undefined;
+  const lockedDepartment = sessionUser?.assignedDepartment ?? null;
+
   const { data, loading, error, reload } = useApiResource<{
     courses: CourseDTO[];
     teachers: TeacherProfileDTO[];
@@ -63,7 +71,7 @@ export default function AdminCoursesPage() {
     <div className="mx-auto max-w-375">
       <PageHeader
         title="Courses"
-        description="Create courses, assign teachers, departments and manage enrollments."
+        description="Courses belong to a department and a field, and may be assigned to a teacher."
         action={
           <button
             onClick={() => setCreating(true)}
@@ -93,13 +101,18 @@ export default function AdminCoursesPage() {
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-indigo-600">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs font-semibold text-indigo-600">
                       {course.code}
                     </span>
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">
                       {course.department?.name ?? "Unassigned"}
                     </span>
+                    {course.field && (
+                      <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
+                        {course.field.name}
+                      </span>
+                    )}
                   </div>
                   <h2 className="mt-1 text-lg font-bold text-gray-950">
                     {course.title}
@@ -111,7 +124,7 @@ export default function AdminCoursesPage() {
                 {course.teacher?.name ?? "No teacher assigned"}
               </p>
               <p className="mt-1 text-[11px] text-gray-400">
-                {course.creditHours} credit hours
+                {course.creditHours} credit hours · Semester {course.semester}
               </p>
 
               <div className="mt-4 flex items-center gap-2 border-t border-gray-100 pt-4">
@@ -148,6 +161,7 @@ export default function AdminCoursesPage() {
         <CourseFormModal
           teachers={data?.teachers ?? []}
           departments={activeDepartments}
+          lockedDepartment={lockedDepartment}
           onClose={() => setCreating(false)}
           onSaved={async () => {
             setCreating(false);
@@ -161,6 +175,7 @@ export default function AdminCoursesPage() {
         <CourseFormModal
           teachers={data?.teachers ?? []}
           departments={activeDepartments}
+          lockedDepartment={lockedDepartment}
           course={editing}
           onClose={() => setEditing(null)}
           onSaved={async () => {
@@ -177,12 +192,14 @@ export default function AdminCoursesPage() {
 function CourseFormModal({
   teachers,
   departments,
+  lockedDepartment,
   course,
   onClose,
   onSaved,
 }: {
   teachers: TeacherProfileDTO[];
   departments: DepartmentDTO[];
+  lockedDepartment?: string | null;
   course?: CourseDTO;
   onClose: () => void;
   onSaved: () => void;
@@ -191,12 +208,50 @@ function CourseFormModal({
     code: course?.code ?? "",
     title: course?.title ?? "",
     teacherId: course?.teacher?.id ?? "",
-    departmentId: course?.department?.id ?? "",
+    departmentId: course?.department?.id ?? lockedDepartment ?? "",
+    fieldId: course?.field?.id ?? "",
     semester: course?.semester ?? 1,
     creditHours: course?.creditHours ?? 3,
   });
+  const [fields, setFields] = useState<FieldDTO[]>([]);
+  const [fieldsLoading, setFieldsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const departmentLocked = !!lockedDepartment;
+
+  const activeDepartments = departments.filter((d) => d.isActive !== false);
+  const visibleDepartments = departmentLocked
+    ? activeDepartments.filter((d) => d.id === lockedDepartment)
+    : activeDepartments;
+
+  const visibleTeachers = departmentLocked
+    ? teachers.filter((t) => t.departmentId === lockedDepartment)
+    : teachers;
+
+  useEffect(() => {
+    if (!form.departmentId) {
+      setFields([]);
+      setForm((prev) => ({ ...prev, fieldId: "" }));
+      return;
+    }
+    let cancelled = false;
+    setFieldsLoading(true);
+    api.fields
+      .list({ departmentId: form.departmentId })
+      .then((fs) => {
+        if (!cancelled) setFields(fs);
+      })
+      .catch(() => {
+        if (!cancelled) setFields([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFieldsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.departmentId]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -208,6 +263,7 @@ function CourseFormModal({
         title: form.title,
         teacherId: form.teacherId || null,
         departmentId: form.departmentId || null,
+        fieldId: form.fieldId || null,
         semester: Number(form.semester),
         creditHours: Number(form.creditHours),
       };
@@ -245,17 +301,38 @@ function CourseFormModal({
         </Field>
         <Field label="Department">
           <select
+            disabled={departmentLocked}
             value={form.departmentId}
-            onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+            onChange={(e) =>
+              setForm({ ...form, departmentId: e.target.value, fieldId: "" })
+            }
             className="form-input"
           >
             <option value="">Unassigned</option>
-            {departments.map((d) => (
+            {visibleDepartments.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.code} · {d.name}
               </option>
             ))}
           </select>
+        </Field>
+        <Field label="Field (of the selected department)">
+          {fieldsLoading ? (
+            <p className="text-sm text-gray-400">Loading fields…</p>
+          ) : (
+            <select
+              value={form.fieldId}
+              onChange={(e) => setForm({ ...form, fieldId: e.target.value })}
+              className="form-input"
+            >
+              <option value="">Unassigned</option>
+              {fields.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.code} · {f.name}
+                </option>
+              ))}
+            </select>
+          )}
         </Field>
         <Field label="Teacher">
           <select
@@ -264,7 +341,7 @@ function CourseFormModal({
             className="form-input"
           >
             <option value="">Unassigned</option>
-            {teachers.map((t) => (
+            {visibleTeachers.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name} ({t.department || "Unassigned"})
               </option>

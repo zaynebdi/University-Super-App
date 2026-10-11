@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Course, Student, User, Enrollment } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { createdResponse, errorResponse, forbiddenResponse, conflictResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { z } from "zod";
 import { Types } from "mongoose";
@@ -17,8 +18,8 @@ export async function POST(
 ) {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
 
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) return errorResponse("Invalid course ID", 400);
@@ -29,11 +30,31 @@ export async function POST(
 
     await dbConnect();
 
-    const course = await Course.findById(id).lean();
+    const course = (await Course.findById(id).lean()) as unknown as {
+      _id: Types.ObjectId;
+      departmentId?: Types.ObjectId | null;
+    } | null;
     if (!course) return notFoundResponse("Course not found");
 
-    const student = (await Student.findById(parsed.data.studentId).lean()) as unknown as { userId: Types.ObjectId } | null;
+    if (
+      scope.assignedDepartment &&
+      (!course.departmentId || course.departmentId.toString() !== scope.assignedDepartment)
+    ) {
+      return forbiddenResponse("You can only manage courses of your own department");
+    }
+
+    const student = (await Student.findById(parsed.data.studentId).lean()) as unknown as {
+      userId: Types.ObjectId;
+      departmentId?: Types.ObjectId | null;
+    } | null;
     if (!student) return notFoundResponse("Student not found");
+
+    if (
+      scope.assignedDepartment &&
+      (!student.departmentId || student.departmentId.toString() !== scope.assignedDepartment)
+    ) {
+      return forbiddenResponse("Student is not in your department");
+    }
 
     const studentUser = (await User.findById(student.userId).lean()) as unknown as { isActive?: boolean } | null;
     if (!studentUser || !studentUser.isActive) return conflictResponse("Student is inactive");

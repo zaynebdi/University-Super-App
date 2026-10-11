@@ -54,6 +54,17 @@ export const DesignationLabels: Record<Designation, string> = {
   "Visiting Faculty": "Visiting Faculty",
 };
 
+export const AdminDesignations = [
+  "HOD - Head of Department",
+  "Dean",
+  "Department Coordinator",
+  "Registrar",
+  "Controller of Examinations",
+  "System Administrator",
+] as const;
+
+export type AdminDesignation = (typeof AdminDesignations)[number];
+
 export const DaysOfWeek = [
   "Monday",
   "Tuesday",

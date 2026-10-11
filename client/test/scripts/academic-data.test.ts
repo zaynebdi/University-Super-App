@@ -46,84 +46,111 @@ interface AcademicDataModule {
 const data = seedData as unknown as AcademicDataModule;
 const seed = data.buildAcademicSeedData();
 
-/* Expected catalog (Department -> Field -> 6 courses each), matching the spec. */
+/* Expected catalog (Department -> Field -> 5 courses each), per the spec. */
 const EXPECTED_DEPARTMENTS: Array<{ name: string; code: string; fields: string[] }> = [
   {
     name: "Computer Science",
     code: "CS",
     fields: [
+      "Computer Science",
       "Software Engineering",
+      "Data Science",
       "Artificial Intelligence",
       "Cyber Security",
-      "Information Technology",
     ],
   },
   {
     name: "Electrical Engineering",
     code: "EE",
-    fields: ["Power Systems", "Electronics", "Telecommunication"],
+    fields: [
+      "Power Systems",
+      "Electronics",
+      "Telecommunication",
+      "Computer Engineering",
+    ],
+  },
+  {
+    name: "Civil Engineering",
+    code: "CE",
+    fields: [
+      "Structural Engineering",
+      "Transportation Engineering",
+      "Geotechnical Engineering",
+      "Water Resources Engineering",
+    ],
   },
   {
     name: "Business Administration",
     code: "BBA",
-    fields: ["Marketing", "Finance", "Human Resource Management"],
+    fields: ["Marketing", "Finance", "Human Resource Management", "Accounting"],
+  },
+  {
+    name: "Allied Health Sciences",
+    code: "AHS",
+    fields: [
+      "Nursing",
+      "Medical Laboratory Technology",
+      "Physical Therapy",
+      "Medical Imaging Technology",
+    ],
+  },
+  {
+    name: "Pharmacy",
+    code: "PHARM",
+    fields: [
+      "Pharmaceutics",
+      "Pharmacology",
+      "Pharmaceutical Chemistry",
+      "Clinical Pharmacy",
+    ],
   },
   {
     name: "Law",
     code: "LAW",
     fields: ["Criminal Law", "Corporate Law", "International Law"],
   },
-  {
-    name: "Allied Health Sciences",
-    code: "AHS",
-    fields: ["Nursing", "Medical Laboratory Technology", "Physical Therapy"],
-  },
 ];
 
 /* Courses that must carry 1 credit hour (applied/practical). */
 const EXPECTED_LAB_COURSES = new Set([
+  // CS — Computer Science
+  "CS-CS-001",
+  "CS-CS-003",
   // CS — Software Engineering
-  "CS-SE-006",
+  "CS-SE-003",
+  "CS-SE-004",
+  // CS — Data Science
+  "CS-DS-004",
+  "CS-DS-005",
   // CS — Artificial Intelligence
   "CS-AI-002",
-  "CS-AI-003",
   "CS-AI-005",
-  "CS-AI-006",
   // CS — Cyber Security
-  "CS-CYB-002",
   "CS-CYB-004",
   "CS-CYB-005",
-  "CS-CYB-006",
-  // CS — Information Technology
-  "CS-IT-001",
-  "CS-IT-002",
-  "CS-IT-003",
-  "CS-IT-004",
-  "CS-IT-005",
-  "CS-IT-006",
   // EE — Power Systems
-  "EE-PS-001",
-  "EE-PS-002",
-  "EE-PS-004",
+  "EE-PWR-001",
   // EE — Electronics
-  "EE-ELE-001",
-  "EE-ELE-002",
-  "EE-ELE-003",
-  "EE-ELE-004",
-  "EE-ELE-005",
-  "EE-ELE-006",
+  "EE-ELX-002",
+  "EE-ELX-003",
   // EE — Telecommunication
-  "EE-TC-003",
+  "EE-TEL-003",
+  // EE — Computer Engineering
+  "EE-CPE-001",
+  "EE-CPE-004",
+  // CE — Structural Engineering
+  "CE-STR-002",
+  // CE — Transportation Engineering
+  "CE-TRN-001",
+  // CE — Geotechnical Engineering
+  "CE-GEO-002",
+  // CE — Water Resources Engineering
+  "CE-WRE-001",
   // BBA — Marketing
-  "BBA-MKT-005",
-  // BBA — Finance
-  "BBA-FIN-003",
+  "BBA-MKT-003",
   // BBA — Human Resource Management
   "BBA-HRM-004",
-  // LAW — Criminal Law
-  "LAW-CRIM-006",
   // AHS — Nursing
-  "AHS-NUR-001",
   "AHS-NUR-002",
   // AHS — Medical Laboratory Technology
   "AHS-MLT-001",
@@ -131,26 +158,29 @@ const EXPECTED_LAB_COURSES = new Set([
   "AHS-MLT-003",
   "AHS-MLT-004",
   "AHS-MLT-005",
-  "AHS-MLT-006",
   // AHS — Physical Therapy
-  "AHS-PT-001",
-  "AHS-PT-003",
-  "AHS-PT-004",
-  "AHS-PT-005",
-  "AHS-PT-006",
+  "AHS-DPT-003",
+  "AHS-DPT-004",
+  // AHS — Medical Imaging Technology
+  "AHS-MIT-003",
+  "AHS-MIT-004",
+  // PHARM — Pharmaceutics
+  "PHARM-PCS-004",
+  // PHARM — Pharmaceutical Chemistry
+  "PHARM-PCH-005",
 ]);
 
 describe("academic-data builder", () => {
-  it("builds 5 departments, 16 fields and 96 courses", () => {
-    expect(seed.summary.departmentCount).toBe(5);
-    expect(seed.summary.fieldCount).toBe(16);
-    expect(seed.summary.courseCount).toBe(96);
-    expect(seed.departments).toHaveLength(5);
+  it("builds 7 departments, 28 fields and 140 courses", () => {
+    expect(seed.summary.departmentCount).toBe(7);
+    expect(seed.summary.fieldCount).toBe(28);
+    expect(seed.summary.courseCount).toBe(140);
+    expect(seed.departments).toHaveLength(7);
 
     const fields = seed.departments.flatMap((d) => d.fields);
-    expect(fields).toHaveLength(16);
+    expect(fields).toHaveLength(28);
     expect(fields.every((f) => f.courses.length > 0)).toBe(true);
-    expect(fields.flatMap((f) => f.courses)).toHaveLength(96);
+    expect(fields.flatMap((f) => f.courses)).toHaveLength(140);
   });
 
   it("matches the expected department/field catalog exactly, in order", () => {
@@ -186,10 +216,10 @@ describe("academic-data builder", () => {
           ).padStart(3, "0")}`;
           expect(course.code).toBe(expectedCode);
           expect(course.code).toMatch(
-            /^[A-Z]{2,4}-[A-Z]{2,4}-\d{3}$/
+            /^[A-Z]{1,6}-[A-Z]{1,6}-\d{3}$/
           );
         });
-        expect(field.courses).toHaveLength(6);
+        expect(field.courses).toHaveLength(5);
       }
     }
   });
@@ -204,10 +234,10 @@ describe("academic-data builder", () => {
       (c) => c.creditHours === data.THEORY_CREDIT_HOURS
     );
 
-    expect(courseCodes).toHaveLength(96);
+    expect(courseCodes).toHaveLength(140);
     expect(labs).toHaveLength(seed.summary.labCourseCount);
     expect(seed.summary.labCourseCount).toBe(EXPECTED_LAB_COURSES.size);
-    expect(theory.length + labs.length).toBe(96);
+    expect(theory.length + labs.length).toBe(140);
 
     for (const course of courseCodes) {
       const expected = EXPECTED_LAB_COURSES.has(course.code)
@@ -222,8 +252,8 @@ describe("academic-data builder", () => {
     for (const department of seed.departments) {
       for (const field of department.fields) {
         const semesters = field.courses.map((c) => c.semester);
-        expect(semesters).toHaveLength(6);
-        expect(new Set(semesters).size).toBe(6); // all distinct
+        expect(semesters).toHaveLength(5);
+        expect(new Set(semesters).size).toBe(5); // all distinct
         expect(semesters[0]).toBe(data.SEMESTER_MIN);
         expect(semesters[semesters.length - 1]).toBe(data.SEMESTER_MAX);
         // Strictly ascending and within range.
@@ -245,6 +275,12 @@ describe("academic-data builder", () => {
     }
   });
 
+  it("is deterministic and idempotent across repeated builds", () => {
+    const again = data.buildAcademicSeedData();
+    expect(again.departments).toEqual(seed.departments);
+    expect(again.summary).toEqual(seed.summary);
+  });
+
   it("only uses valid semester/credit values across the whole dataset", () => {
     for (const department of seed.departments) {
       for (const field of department.fields) {
@@ -264,13 +300,12 @@ describe("academic-data builder", () => {
 });
 
 describe("semesterForCourse", () => {
-  it("evenly spreads 6 courses across semesters 1–8 (in order)", () => {
-    expect(data.semesterForCourse(0, 6)).toBe(1);
-    expect(data.semesterForCourse(1, 6)).toBe(2);
-    expect(data.semesterForCourse(2, 6)).toBe(4);
-    expect(data.semesterForCourse(3, 6)).toBe(5);
-    expect(data.semesterForCourse(4, 6)).toBe(7);
-    expect(data.semesterForCourse(5, 6)).toBe(8);
+  it("evenly spreads 5 courses across semesters 1–8 (in order)", () => {
+    expect(data.semesterForCourse(0, 5)).toBe(1);
+    expect(data.semesterForCourse(1, 5)).toBe(3);
+    expect(data.semesterForCourse(2, 5)).toBe(5);
+    expect(data.semesterForCourse(3, 5)).toBe(6);
+    expect(data.semesterForCourse(4, 5)).toBe(8);
   });
 
   it("handles the single-course edge case", () => {
@@ -278,18 +313,19 @@ describe("semesterForCourse", () => {
   });
 
   it("rejects invalid arguments", () => {
-    expect(() => data.semesterForCourse(-1, 6)).toThrow();
+    expect(() => data.semesterForCourse(-1, 5)).toThrow();
     expect(() => data.semesterForCourse(0, 0)).toThrow();
-    expect(() => data.semesterForCourse(6, 6)).toThrow();
-    expect(() => data.semesterForCourse(1.5, 6)).toThrow();
+    expect(() => data.semesterForCourse(5, 5)).toThrow();
+    expect(() => data.semesterForCourse(1.5, 5)).toThrow();
   });
 });
 
 describe("buildCourseCode", () => {
   it("formats DEPTCODE-FIELDCODE-NNN with zero-padded numbers", () => {
     expect(data.buildCourseCode("CS", "AI", 0)).toBe("CS-AI-001");
-    expect(data.buildCourseCode("CS", "AI", 5)).toBe("CS-AI-006");
+    expect(data.buildCourseCode("CS", "AI", 4)).toBe("CS-AI-005");
     expect(data.buildCourseCode("AHS", "MLT", 3)).toBe("AHS-MLT-004");
+    expect(data.buildCourseCode("PHARM", "PCS", 2)).toBe("PHARM-PCS-003");
   });
 
   it("normalises lower-case codes to upper case", () => {

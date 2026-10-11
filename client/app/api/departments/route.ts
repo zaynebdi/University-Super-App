@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Department, Course } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import {
   successResponse,
   createdResponse,
@@ -56,8 +57,8 @@ function toDepartmentDTO(department: LeanDepartment, courses: { id: string; code
 export async function GET(req: Request) {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
 
     const { searchParams } = new URL(req.url);
     const parsed = listQuerySchema.safeParse({
@@ -67,7 +68,12 @@ export async function GET(req: Request) {
 
     await dbConnect();
 
-    const filter = parsed.data.activeOnly === "true" ? { isActive: true } : {};
+    const filter: Record<string, unknown> =
+      parsed.data.activeOnly === "true" ? { isActive: true } : {};
+    if (scope.assignedDepartment) {
+      // Department admins only see their own department.
+      filter._id = scope.assignedDepartment;
+    }
     const departments = (await Department.find(filter).lean()) as unknown as LeanDepartment[];
 
     const ids = departments.map((d) => d._id);
@@ -97,8 +103,11 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
+    if (scope.assignedDepartment) {
+      return forbiddenResponse("Only a super admin can create departments");
+    }
 
     const body = await req.json();
     const parsed = createDepartmentSchema.safeParse(body);

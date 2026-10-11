@@ -56,7 +56,8 @@ export async function createStudentWithRollNumber(
   departmentCode: string,
   departmentName: string,
   semester: number,
-  year?: number
+  year?: number,
+  fieldId?: Types.ObjectId | null
 ): Promise<{ studentId: Types.ObjectId; rollNo: string }> {
   for (let attempt = 0; attempt < MAX_ROLL_NUMBER_ATTEMPTS; attempt++) {
     const rollNo = await nextRollNumber(departmentId, departmentCode, year);
@@ -66,6 +67,7 @@ export async function createStudentWithRollNumber(
         rollNo,
         department: departmentName,
         departmentId,
+        ...(fieldId ? { fieldId } : {}),
         semester,
       });
       return { studentId: student._id, rollNo };
