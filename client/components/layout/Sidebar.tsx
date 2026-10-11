@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
@@ -18,6 +19,7 @@ import {
   Bot,
   Map,
   BriefcaseBusiness,
+  UserRound,
   Settings,
   HelpCircle,
   LogOut,
@@ -41,6 +43,7 @@ const navigation = [
   { label: "Events", href: "/student/events", icon: Calendar },
   { label: "Resources", href: "/student/resources", icon: Library },
   { label: "Fees", href: "/student/fees", icon: CreditCard },
+  { label: "Profile", href: "/student/profile", icon: UserRound },
 ];
 
 const advanced = [
@@ -236,7 +239,10 @@ export default function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             Settings
           </Link>
 
-          <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-white/55 transition-all duration-200 hover:bg-white/7 hover:text-white hover:translate-x-0.5">
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-white/55 transition-all duration-200 hover:bg-white/7 hover:text-white hover:translate-x-0.5"
+          >
             <LogOut size={17} />
             Sign out
           </button>

@@ -1,100 +1,72 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import AppShell from "@/components/layout/AppShell";
 import Card from "@/components/ui/Card";
 import {
-  GraduationCap,
-  TrendingUp,
+  AlertCircle,
   Award,
   BookOpen,
+  CheckCircle2,
   ChevronDown,
   Download,
-  CheckCircle2,
+  GraduationCap,
+  Loader2,
+  TrendingUp,
 } from "lucide-react";
+
+import {
+  api,
+  type StudentResultsDTO,
+} from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
+import { GradePoints } from "@/lib/constants";
+
+type Data = {
+  results: StudentResultsDTO;
+  department: string;
+};
 
 const semesters = ["Fall 2026", "Spring 2026", "Fall 2025", "Spring 2025"];
 
-const courses = [
-  {
-    code: "SE-401",
-    name: "Software Architecture",
-    credits: 3,
-    assignment: 18,
-    midterm: 24,
-    final: 43,
-    total: 85,
-    grade: "A",
-    points: 4.0,
-  },
-  {
-    code: "AI-402",
-    name: "Artificial Intelligence",
-    credits: 3,
-    assignment: 17,
-    midterm: 23,
-    final: 41,
-    total: 81,
-    grade: "A-",
-    points: 3.7,
-  },
-  {
-    code: "CS-405",
-    name: "Cyber Security",
-    credits: 3,
-    assignment: 19,
-    midterm: 25,
-    final: 44,
-    total: 88,
-    grade: "A",
-    points: 4.0,
-  },
-  {
-    code: "SE-406",
-    name: "Web Engineering",
-    credits: 3,
-    assignment: 18,
-    midterm: 21,
-    final: 38,
-    total: 77,
-    grade: "B+",
-    points: 3.3,
-  },
-  {
-    code: "SE-407",
-    name: "Software Testing",
-    credits: 3,
-    assignment: 16,
-    midterm: 20,
-    final: 36,
-    total: 72,
-    grade: "B+",
-    points: 3.3,
-  },
-  {
-    code: "DS-408",
-    name: "Distributed Systems",
-    credits: 3,
-    assignment: 15,
-    midterm: 19,
-    final: 34,
-    total: 68,
-    grade: "B",
-    points: 3.0,
-  },
-];
-
-const semesterPerformance = [
-  { semester: "Spring 2024", gpa: 3.32 },
-  { semester: "Fall 2024", gpa: 3.48 },
-  { semester: "Spring 2025", gpa: 3.61 },
-  { semester: "Fall 2025", gpa: 3.72 },
-  { semester: "Spring 2026", gpa: 3.81 },
-  { semester: "Fall 2026", gpa: 3.72 },
-];
-
 export default function GradesPage() {
   const [selectedSemester, setSelectedSemester] = useState("Fall 2026");
+
+  const { data, loading, error } = useApiResource<Data>(async () => {
+    const me = await api.students.me();
+    const results = await api.results.byStudent(me.id);
+    return { results, department: me.department };
+  });
+
+  const results = data?.results.results ?? [];
+  const gpa = data?.results.gpa;
+  const department = data?.department;
+
+  const totalCredits = results.reduce(
+    (sum, result) => sum + (result.course?.creditHours ?? 0),
+    0,
+  );
+
+  const gradeDistribution = useMemo(() => {
+    const list = data?.results.results ?? [];
+    const counts = new Map<string, number>();
+    for (const result of list) {
+      counts.set(result.grade, (counts.get(result.grade) ?? 0) + 1);
+    }
+    const order = Object.keys(GradePoints);
+    return [...counts.entries()]
+      .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+      .map(([grade, count]) => ({
+        grade,
+        count,
+        percentage: list.length ? Math.round((count / list.length) * 100) : 0,
+      }));
+  }, [data]);
+
+  const gpaBars = gpa != null ? [{ semester: selectedSemester, gpa }] : [];
+
+  const standing =
+    gpa == null ? "—" : gpa >= 2 ? "Good Standing" : "Academic Warning";
 
   return (
     <AppShell>
@@ -149,12 +121,12 @@ export default function GradesPage() {
                 <p className="text-xs font-medium text-gray-500">Current GPA</p>
 
                 <h2 className="mt-2 text-3xl font-bold tracking-tight text-gray-950">
-                  3.72
+                  {gpa != null ? gpa.toFixed(2) : "—"}
                 </h2>
 
                 <p className="mt-2 flex items-center gap-1 text-[11px] font-medium text-emerald-600">
                   <TrendingUp size={13} />
-                  +0.08 from previous semester
+                  Based on recorded results
                 </p>
               </div>
 
@@ -172,7 +144,7 @@ export default function GradesPage() {
                 </p>
 
                 <h2 className="mt-2 text-3xl font-bold tracking-tight text-gray-950">
-                  3.68
+                  —
                 </h2>
 
                 <p className="mt-2 text-[11px] text-gray-400">Out of 4.00</p>
@@ -192,11 +164,11 @@ export default function GradesPage() {
                 </p>
 
                 <h2 className="mt-2 text-3xl font-bold tracking-tight text-gray-950">
-                  96
+                  {totalCredits}
                 </h2>
 
                 <p className="mt-2 text-[11px] text-gray-400">
-                  132 total program credits
+                  From recorded results
                 </p>
               </div>
 
@@ -214,7 +186,7 @@ export default function GradesPage() {
                 </p>
 
                 <h2 className="mt-2 text-3xl font-bold tracking-tight text-gray-950">
-                  6 / 6
+                  {results.length}
                 </h2>
 
                 <p className="mt-2 flex items-center gap-1 text-[11px] font-medium text-emerald-600">
@@ -245,37 +217,43 @@ export default function GradesPage() {
               </div>
 
               <div className="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-600">
-                3.72 GPA
+                {gpa != null ? `${gpa.toFixed(2)} GPA` : "— GPA"}
               </div>
             </div>
 
-            <div className="mt-7 flex h-55 items-end gap-3 border-b border-gray-100 pb-0 sm:gap-5">
-              {semesterPerformance.map((item) => {
-                const height = `${(item.gpa / 4) * 100}%`;
+            {gpaBars.length === 0 ? (
+              <div className="mt-7 flex h-55 items-center justify-center border-b border-gray-100 text-sm text-gray-400">
+                No GPA data available.
+              </div>
+            ) : (
+              <div className="mt-7 flex h-55 items-end gap-3 border-b border-gray-100 pb-0 sm:gap-5">
+                {gpaBars.map((item) => {
+                  const height = `${(item.gpa / 4) * 100}%`;
 
-                return (
-                  <div
-                    key={item.semester}
-                    className="flex h-full flex-1 flex-col items-center justify-end"
-                  >
-                    <span className="mb-2 text-[10px] font-bold text-gray-500">
-                      {item.gpa.toFixed(2)}
-                    </span>
+                  return (
+                    <div
+                      key={item.semester}
+                      className="flex h-full flex-1 flex-col items-center justify-end"
+                    >
+                      <span className="mb-2 text-[10px] font-bold text-gray-500">
+                        {item.gpa.toFixed(2)}
+                      </span>
 
-                    <div className="flex h-42.5 w-full items-end">
-                      <div
-                        className="w-full rounded-t-lg bg-indigo-500 transition hover:bg-indigo-600"
-                        style={{ height }}
-                      />
+                      <div className="flex h-42.5 w-full items-end">
+                        <div
+                          className="w-full rounded-t-lg bg-indigo-500 transition hover:bg-indigo-600"
+                          style={{ height }}
+                        />
+                      </div>
+
+                      <span className="mt-3 text-center text-[9px] font-medium text-gray-400">
+                        {item.semester.replace(" ", "\n")}
+                      </span>
                     </div>
-
-                    <span className="mt-3 text-center text-[9px] font-medium text-gray-400">
-                      {item.semester.replace(" ", "\n")}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </Card>
 
           <Card className="p-6">
@@ -287,33 +265,34 @@ export default function GradesPage() {
               <p className="mt-1 text-xs text-gray-400">Current semester</p>
             </div>
 
-            <div className="mt-7 space-y-5">
-              {[
-                { grade: "A", count: 2, percentage: 33 },
-                { grade: "A-", count: 1, percentage: 17 },
-                { grade: "B+", count: 2, percentage: 33 },
-                { grade: "B", count: 1, percentage: 17 },
-              ].map((item) => (
-                <div key={item.grade}>
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-sm font-bold text-gray-800">
-                      {item.grade}
-                    </span>
+            {gradeDistribution.length === 0 ? (
+              <div className="mt-7 text-sm text-gray-400">
+                No grades recorded yet.
+              </div>
+            ) : (
+              <div className="mt-7 space-y-5">
+                {gradeDistribution.map((item) => (
+                  <div key={item.grade}>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-sm font-bold text-gray-800">
+                        {item.grade}
+                      </span>
 
-                    <span className="text-xs text-gray-400">
-                      {item.count} course{item.count > 1 ? "s" : ""}
-                    </span>
-                  </div>
+                      <span className="text-xs text-gray-400">
+                        {item.count} course{item.count > 1 ? "s" : ""}
+                      </span>
+                    </div>
 
-                  <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full bg-indigo-500"
-                      style={{ width: `${item.percentage}%` }}
-                    />
+                    <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-full rounded-full bg-indigo-500"
+                        style={{ width: `${item.percentage}%` }}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Card>
         </div>
 
@@ -326,12 +305,12 @@ export default function GradesPage() {
               </h2>
 
               <p className="mt-1 text-xs text-gray-400">
-                {selectedSemester} · Software Engineering
+                {selectedSemester} · {department ?? "—"}
               </p>
             </div>
 
             <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500">
-              6 Courses · 18 Credits
+              {results.length} Courses · {totalCredits} Credits
             </div>
           </div>
 
@@ -345,18 +324,6 @@ export default function GradesPage() {
 
                   <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-wider text-gray-400">
                     Credits
-                  </th>
-
-                  <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                    Assignments
-                  </th>
-
-                  <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                    Midterm
-                  </th>
-
-                  <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                    Final
                   </th>
 
                   <th className="px-4 py-4 text-[10px] font-bold uppercase tracking-wider text-gray-400">
@@ -374,60 +341,82 @@ export default function GradesPage() {
               </thead>
 
               <tbody>
-                {courses.map((course) => (
-                  <tr
-                    key={course.code}
-                    className="border-b border-gray-100 last:border-0 hover:bg-gray-50/70"
-                  >
-                    <td className="px-6 py-5">
-                      <div className="flex items-center gap-3">
-                        <div className="grid h-9 w-9 place-items-center rounded-lg bg-indigo-50 text-indigo-600">
-                          <BookOpen size={16} />
-                        </div>
-
-                        <div>
-                          <p className="text-xs font-bold text-indigo-600">
-                            {course.code}
-                          </p>
-
-                          <p className="mt-0.5 text-sm font-semibold text-gray-900">
-                            {course.name}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-5 text-sm font-medium text-gray-600">
-                      {course.credits}
-                    </td>
-
-                    <td className="px-4 py-5 text-sm text-gray-600">
-                      {course.assignment}
-                    </td>
-
-                    <td className="px-4 py-5 text-sm text-gray-600">
-                      {course.midterm}
-                    </td>
-
-                    <td className="px-4 py-5 text-sm text-gray-600">
-                      {course.final}
-                    </td>
-
-                    <td className="px-4 py-5 text-sm font-bold text-gray-900">
-                      {course.total}
-                    </td>
-
-                    <td className="px-4 py-5">
-                      <span className="inline-flex rounded-lg bg-indigo-50 px-2.5 py-1.5 text-xs font-bold text-indigo-600">
-                        {course.grade}
+                {loading ? (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-6 py-8 text-sm text-gray-500"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Loader2 size={16} className="animate-spin" /> Loading
+                        results…
                       </span>
                     </td>
-
-                    <td className="px-6 py-5 text-sm font-bold text-gray-900">
-                      {course.points.toFixed(1)}
+                  </tr>
+                ) : error ? (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-6 py-8 text-sm text-red-600"
+                    >
+                      <span className="flex items-center gap-2">
+                        <AlertCircle size={16} /> {error}
+                      </span>
                     </td>
                   </tr>
-                ))}
+                ) : results.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-6 py-12 text-center text-sm text-gray-500"
+                    >
+                      No results recorded yet.
+                    </td>
+                  </tr>
+                ) : (
+                  results.map((result) => (
+                    <tr
+                      key={result.id}
+                      className="border-b border-gray-100 last:border-0 hover:bg-gray-50/70"
+                    >
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-3">
+                          <div className="grid h-9 w-9 place-items-center rounded-lg bg-indigo-50 text-indigo-600">
+                            <BookOpen size={16} />
+                          </div>
+
+                          <div>
+                            <p className="text-xs font-bold text-indigo-600">
+                              {result.course?.code ?? "—"}
+                            </p>
+
+                            <p className="mt-0.5 text-sm font-semibold text-gray-900">
+                              {result.course?.title ?? "—"}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-5 text-sm font-medium text-gray-600">
+                        {result.course?.creditHours ?? "—"}
+                      </td>
+
+                      <td className="px-4 py-5 text-sm font-bold text-gray-900">
+                        {result.marks}
+                      </td>
+
+                      <td className="px-4 py-5">
+                        <span className="inline-flex rounded-lg bg-indigo-50 px-2.5 py-1.5 text-xs font-bold text-indigo-600">
+                          {result.grade}
+                        </span>
+                      </td>
+
+                      <td className="px-6 py-5 text-sm font-bold text-gray-900">
+                        {GradePoints[result.grade]?.toFixed(1) ?? "—"}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -438,7 +427,10 @@ export default function GradesPage() {
             </span>
 
             <span className="font-semibold text-gray-600">
-              Semester GPA: <span className="text-indigo-600">3.72</span>
+              Semester GPA:{" "}
+              <span className="text-indigo-600">
+                {gpa != null ? gpa.toFixed(2) : "—"}
+              </span>
             </span>
           </div>
         </Card>
@@ -454,25 +446,23 @@ export default function GradesPage() {
               Degree completion overview
             </p>
 
-            <div className="mt-6">
-              <div className="mb-2 flex justify-between">
-                <span className="text-xs font-medium text-gray-500">
-                  Degree Completion
-                </span>
-
-                <span className="text-xs font-bold text-indigo-600">73%</span>
+            <div className="mt-6 flex items-end justify-between rounded-xl bg-gray-50 px-4 py-5">
+              <div>
+                <p className="text-2xl font-bold text-gray-950">
+                  {totalCredits}
+                </p>
+                <p className="mt-1 text-[11px] text-gray-400">
+                  credits recorded
+                </p>
               </div>
 
-              <div className="h-3 overflow-hidden rounded-full bg-gray-100">
-                <div
-                  className="h-full rounded-full bg-indigo-500"
-                  style={{ width: "73%" }}
-                />
-              </div>
-
-              <div className="mt-3 flex justify-between text-[11px] text-gray-400">
-                <span>96 credits completed</span>
-                <span>132 credits required</span>
+              <div className="text-right">
+                <p className="text-2xl font-bold text-gray-950">
+                  {results.length}
+                </p>
+                <p className="mt-1 text-[11px] text-gray-400">
+                  recorded results
+                </p>
               </div>
             </div>
           </Card>
@@ -489,7 +479,7 @@ export default function GradesPage() {
                 </h2>
 
                 <p className="mt-1 text-sm font-semibold text-indigo-600">
-                  Good Standing
+                  {standing}
                 </p>
 
                 <p className="mt-2 text-xs leading-5 text-gray-500">

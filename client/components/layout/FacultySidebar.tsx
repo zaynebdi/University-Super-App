@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
@@ -11,13 +12,7 @@ import {
   ClipboardCheck,
   FileText,
   GraduationCap,
-  Library,
   Megaphone,
-  BarChart3,
-  Bot,
-  Lightbulb,
-  MessageSquareWarning,
-  Settings,
   LogOut,
   X,
   Loader2,
@@ -68,32 +63,9 @@ const navigation = [
 
 const teaching = [
   {
-    label: "Resources",
-    href: "/faculty/resources",
-    icon: Library,
-  },
-  {
     label: "Announcements",
     href: "/faculty/announcements",
     icon: Megaphone,
-  },
-  {
-    label: "Course Analytics",
-    href: "/faculty/analytics",
-    icon: BarChart3,
-  },
-];
-
-const smartFaculty = [
-  {
-    label: "AI Teaching Assistant",
-    href: "/faculty/ai-assistant",
-    icon: Bot,
-  },
-  {
-    label: "Student Insights",
-    href: "/faculty/student-insights",
-    icon: Lightbulb,
   },
 ];
 
@@ -220,90 +192,14 @@ export default function FacultySidebar({
           </div>
 
           <nav className="space-y-1">{renderNavigation(teaching)}</nav>
-
-          {/* Smart Faculty */}
-          <div className="mb-3 mt-7 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/35">
-            Smart Faculty
-          </div>
-
-          <nav className="space-y-1">
-            {smartFaculty.map((item) => {
-              const Icon = item.icon;
-              const active = isActive(item.href);
-              const loading = loadingPath === item.href;
-
-              return (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  onClick={() => {
-                    handleNavigation(item.href);
-                    onClose?.();
-                  }}
-                  className={[
-                    "group flex items-center gap-3 rounded-xl px-3 py-2.5",
-                    "text-[13px] font-medium transition-all duration-200",
-                    active
-                      ? "bg-indigo-500 text-white shadow-lg shadow-indigo-950/20"
-                      : "text-white/60 hover:bg-white/7 hover:text-white hover:translate-x-0.5",
-                  ].join(" ")}
-                >
-                  {loading ? (
-                    <Loader2
-                      size={17}
-                      strokeWidth={1.8}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <Icon size={17} strokeWidth={1.8} />
-                  )}
-
-                  <span>{item.label}</span>
-
-                  {item.label === "AI Teaching Assistant" && (
-                    <span className="ml-auto rounded-full bg-indigo-400/15 px-2 py-0.5 text-[9px] font-semibold text-indigo-300">
-                      AI
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </nav>
         </div>
 
         {/* Bottom */}
         <div className="border-t border-white/10 p-4">
-          <Link
-            href="/faculty/help"
-            onClick={() => handleNavigation("/faculty/help")}
-            className={[
-              "mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5",
-              "text-[13px] transition-all duration-200",
-              isActive("/faculty/help")
-                ? "bg-indigo-500 text-white shadow-lg shadow-indigo-950/20"
-                : "text-white/55 hover:bg-white/7 hover:text-white hover:translate-x-0.5",
-            ].join(" ")}
+          <button
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-white/55 transition-all duration-200 hover:bg-white/7 hover:text-white hover:translate-x-0.5"
           >
-            <MessageSquareWarning size={17} />
-            Help & Support
-          </Link>
-
-          <Link
-            href="/faculty/settings"
-            onClick={() => handleNavigation("/faculty/settings")}
-            className={[
-              "mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5",
-              "text-[13px] transition-all duration-200",
-              isActive("/faculty/settings")
-                ? "bg-indigo-500 text-white shadow-lg shadow-indigo-950/20"
-                : "text-white/55 hover:bg-white/7 hover:text-white hover:translate-x-0.5",
-            ].join(" ")}
-          >
-            <Settings size={17} />
-            Settings
-          </Link>
-
-          <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-white/55 transition-all duration-200 hover:bg-white/7 hover:text-white hover:translate-x-0.5">
             <LogOut size={17} />
             Sign out
           </button>

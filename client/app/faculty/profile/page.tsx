@@ -21,12 +21,18 @@ import {
   Plus,
   X,
   CheckCircle2,
+  AlertCircle,
   Download,
+  Loader2,
   Lock,
   Monitor,
   Sparkles,
   Trash2,
 } from "lucide-react";
+
+import { api, ApiError, type TeacherProfileDTO } from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
+import ChangePasswordModal from "@/components/ChangePasswordModal";
 
 type Skill = {
   id: number;
@@ -34,89 +40,102 @@ type Skill = {
   level: number;
 };
 
-const initialSkills: Skill[] = [
-  { id: 1, name: "Software Architecture", level: 94 },
-  { id: 2, name: "Web Engineering", level: 91 },
-  { id: 3, name: "Software Testing", level: 86 },
-  { id: 4, name: "Artificial Intelligence", level: 78 },
-  { id: 5, name: "Cyber Security", level: 72 },
-  { id: 6, name: "Cloud Computing", level: 68 },
-];
+type Profile = {
+  fullName: string;
+  facultyId: string;
+  email: string;
+  phone: string;
+  photo: string;
+  gender: string;
+  dob: string;
+  department: string;
+  designation: string;
+  specialization: string;
+  qualification: string;
+  joiningDate: string;
+  office: string;
+  officeHours: string;
+};
 
-const publications = [
-  {
-    title: "Modern Software Architecture Patterns for Enterprise Systems",
-    journal: "International Journal of Software Engineering",
-    year: "2025",
-  },
-  {
-    title: "AI-Assisted Development in Modern Web Applications",
-    journal: "Computing Research Review",
-    year: "2024",
-  },
-  {
-    title: "Secure Software Development Lifecycle: A Practical Framework",
-    journal: "Journal of Cyber Security Studies",
-    year: "2024",
-  },
-];
-
-const documents = [
-  {
-    name: "Faculty Appointment Letter",
-    type: "PDF",
-    size: "1.8 MB",
-    date: "12 Aug 2026",
-  },
-  {
-    name: "Highest Qualification Certificate",
-    type: "PDF",
-    size: "2.4 MB",
-    date: "05 Jul 2026",
-  },
-  {
-    name: "Research Profile",
-    type: "PDF",
-    size: "890 KB",
-    date: "18 Jun 2026",
-  },
-];
+function initials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
 
 export default function FacultyProfilePage() {
+  const { data, loading, error, reload } = useApiResource<TeacherProfileDTO>(() =>
+    api.teachers.me(),
+  );
+
   const [editOpen, setEditOpen] = useState(false);
   const [skillOpen, setSkillOpen] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const [skills, setSkills] = useState(initialSkills);
+  const [skills, setSkills] = useState<Skill[]>([]);
 
-  const [profile, setProfile] = useState({
-    fullName: "Dr. Ahmed Khan",
-    facultyId: "FAC-2021-0047",
-    email: "ahmed.khan@university.edu",
-    phone: "+92 300 1234567",
-    gender: "Male",
-    dob: "14 March 1987",
-    department: "Department of Software Engineering",
-    designation: "Assistant Professor",
-    specialization: "Software Architecture & Web Engineering",
-    qualification: "PhD in Software Engineering",
-    joiningDate: "12 September 2021",
-    office: "SE-214, Computing & Technology Block",
-    officeHours: "Monday & Wednesday, 02:00 PM – 04:00 PM",
-  });
-
-  const [editForm, setEditForm] = useState(profile);
+  const [editForm, setEditForm] = useState<Profile | null>(null);
 
   const [newSkill, setNewSkill] = useState("");
   const [newSkillLevel, setNewSkillLevel] = useState("80");
 
+  const profile: Profile = {
+    fullName: data?.name ?? "—",
+    facultyId: data?.id ?? "—",
+    email: data?.email ?? "—",
+    phone: data?.phone ?? "—",
+    photo: data?.photo ?? "",
+    gender: "—",
+    dob: "—",
+    department: data?.department ?? "—",
+    designation: data?.designation ?? "—",
+    specialization: "—",
+    qualification: "—",
+    joiningDate: data?.createdAt
+      ? new Date(data.createdAt).toLocaleDateString()
+      : "—",
+    office: "—",
+    officeHours: "—",
+  };
+
   const openEdit = () => {
-    setEditForm(profile);
+    setEditForm({
+      ...profile,
+      phone: data?.phone ?? "",
+      photo: data?.photo ?? "",
+    });
+    setSaveError(null);
     setEditOpen(true);
   };
 
-  const saveProfile = () => {
-    setProfile(editForm);
-    setEditOpen(false);
+  const saveProfile = async () => {
+    if (!editForm || !data) return;
+
+    setSaving(true);
+    setSaveError(null);
+
+    const payload: { phone: string; photo?: string } = {
+      phone: editForm.phone.trim(),
+    };
+    if (editForm.photo.trim()) payload.photo = editForm.photo.trim();
+
+    try {
+      await api.users.update(data.userId, payload);
+      setEditOpen(false);
+      await reload();
+    } catch (e) {
+      setSaveError(
+        e instanceof ApiError ? e.message : "Failed to save profile"
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const addSkill = () => {
@@ -142,6 +161,26 @@ export default function FacultyProfilePage() {
 
   const inputClass =
     "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-700 outline-none focus:border-indigo-400";
+
+  if (loading) {
+    return (
+      <main className="space-y-6">
+        <Card className="flex items-center gap-2 p-8 text-sm text-gray-500">
+          <Loader2 size={16} className="animate-spin" /> Loading profile…
+        </Card>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="space-y-6">
+        <Card className="flex items-center gap-2 p-6 text-sm text-red-600">
+          <AlertCircle size={16} /> {error}
+        </Card>
+      </main>
+    );
+  }
 
   return (
     <main className="space-y-6">
@@ -194,7 +233,7 @@ export default function FacultyProfilePage() {
           <div className="-mt-12 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
               <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-3xl border-4 border-white bg-indigo-100 text-2xl font-bold text-indigo-700 shadow-lg">
-                AK
+                {initials(profile.fullName)}
               </div>
 
               <div className="pb-1">
@@ -224,11 +263,11 @@ export default function FacultyProfilePage() {
                 <span className="font-semibold text-gray-700">
                   Profile Completion
                 </span>
-                <span className="font-bold text-indigo-600">94%</span>
+                <span className="font-bold text-indigo-600">—</span>
               </div>
 
               <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full w-[94%] rounded-full bg-indigo-600" />
+                <div className="h-full w-0 rounded-full bg-indigo-600" />
               </div>
 
               <p className="mt-2 text-xs text-gray-400">
@@ -244,25 +283,25 @@ export default function FacultyProfilePage() {
         {[
           {
             label: "Assigned Courses",
-            value: "4",
+            value: "—",
             description: "Current semester",
             icon: BookOpen,
           },
           {
             label: "Total Students",
-            value: "186",
+            value: "—",
             description: "Across all courses",
             icon: Users,
           },
           {
             label: "Research Publications",
-            value: "18",
+            value: "—",
             description: "Academic publications",
             icon: Award,
           },
           {
             label: "Teaching Experience",
-            value: "8+ Years",
+            value: "—",
             description: "Academic experience",
             icon: GraduationCap,
           },
@@ -410,19 +449,19 @@ export default function FacultyProfilePage() {
               <MetricBox
                 icon={<BookOpen size={18} />}
                 label="Courses Assigned"
-                value="4"
+                value="—"
               />
 
               <MetricBox
                 icon={<Users size={18} />}
                 label="Students"
-                value="186"
+                value="—"
               />
 
               <MetricBox
                 icon={<Clock3 size={18} />}
                 label="Office Hours"
-                value="4 hrs/week"
+                value="—"
               />
             </div>
 
@@ -461,8 +500,13 @@ export default function FacultyProfilePage() {
               }
             />
 
-            <div className="mt-6 space-y-5">
-              {skills.map((skill) => (
+            {skills.length === 0 ? (
+              <div className="mt-6 text-sm text-gray-400">
+                No skills added yet.
+              </div>
+            ) : (
+              <div className="mt-6 space-y-5">
+                {skills.map((skill) => (
                 <div key={skill.id}>
                   <div className="mb-2 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -491,8 +535,9 @@ export default function FacultyProfilePage() {
                     />
                   </div>
                 </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </Card>
 
           {/* Publications */}
@@ -503,31 +548,8 @@ export default function FacultyProfilePage() {
               description="Recent academic publications and research work."
             />
 
-            <div className="mt-5 divide-y divide-gray-100">
-              {publications.map((publication) => (
-                <div
-                  key={publication.title}
-                  className="flex gap-4 py-4 first:pt-0 last:pb-0"
-                >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
-                    <FileText size={18} />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-gray-900">
-                      {publication.title}
-                    </p>
-
-                    <p className="mt-1 text-xs text-gray-500">
-                      {publication.journal}
-                    </p>
-
-                    <span className="mt-2 inline-block rounded-full bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">
-                      {publication.year}
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <div className="mt-5 text-sm text-gray-400">
+              No publications available.
             </div>
           </Card>
         </div>
@@ -550,14 +572,11 @@ export default function FacultyProfilePage() {
             </div>
 
             <div className="space-y-4 p-6">
-              <SnapshotRow label="Department" value="Software Engineering" />
-              <SnapshotRow label="Designation" value="Assistant Professor" />
-              <SnapshotRow
-                label="Specialization"
-                value="Software Architecture"
-              />
-              <SnapshotRow label="Experience" value="8+ Years" />
-              <SnapshotRow label="Research Areas" value="AI · Security · Web" />
+              <SnapshotRow label="Department" value={profile.department} />
+              <SnapshotRow label="Designation" value={profile.designation} />
+              <SnapshotRow label="Specialization" value="—" />
+              <SnapshotRow label="Experience" value="—" />
+              <SnapshotRow label="Research Areas" value="—" />
             </div>
           </Card>
 
@@ -575,36 +594,8 @@ export default function FacultyProfilePage() {
               }
             />
 
-            <div className="mt-5 space-y-3">
-              {documents.map((document) => (
-                <div
-                  key={document.name}
-                  className="rounded-2xl border border-gray-100 bg-gray-50 p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-red-500 shadow-sm">
-                      <FileText size={18} />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-gray-800">
-                        {document.name}
-                      </p>
-
-                      <p className="mt-1 text-xs text-gray-400">
-                        {document.type} · {document.size} · {document.date}
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={() => alert(`Opening ${document.name}`)}
-                      className="rounded-lg p-2 text-gray-400 hover:bg-white hover:text-indigo-600"
-                    >
-                      <Download size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))}
+            <div className="mt-5 text-sm text-gray-400">
+              No documents available.
             </div>
           </Card>
 
@@ -635,9 +626,10 @@ export default function FacultyProfilePage() {
               <SecurityRow
                 icon={<Lock size={17} />}
                 title="Password"
-                description="Last changed 42 days ago"
+                description="Keep your account secure"
                 status="Update"
                 action
+                onClick={() => setChangeOpen(true)}
               />
             </div>
           </Card>
@@ -674,20 +666,20 @@ export default function FacultyProfilePage() {
 
           <div>
             <p className="text-sm font-semibold text-gray-900">
-              Backend-ready faculty profile
+              Live faculty profile
             </p>
 
             <p className="mt-1 text-xs leading-5 text-gray-600">
-              This UI is currently using local state. Later it will connect to
-              FastAPI endpoints for profile data, skills, documents, sessions,
-              ID cards and 2FA settings.
+              Your identity, department and designation are loaded from your
+              faculty profile. Skills, documents, sessions, ID cards and 2FA
+              settings are not yet available.
             </p>
           </div>
         </div>
       </Card>
 
       {/* Edit Profile Modal */}
-      {editOpen && (
+      {editOpen && editForm && (
         <Modal
           title="Edit Faculty Profile"
           description="Update your personal and professional information."
@@ -698,12 +690,7 @@ export default function FacultyProfilePage() {
               <input
                 className={inputClass}
                 value={editForm.fullName}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    fullName: e.target.value,
-                  })
-                }
+                readOnly
               />
             </FormField>
 
@@ -712,37 +699,32 @@ export default function FacultyProfilePage() {
                 className={inputClass}
                 value={editForm.phone}
                 onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    phone: e.target.value,
-                  })
+                  setEditForm({ ...editForm, phone: e.target.value })
                 }
+                placeholder="+92 300 0000000"
+              />
+            </FormField>
+
+            <FormField label="Profile Photo URL">
+              <input
+                className={inputClass}
+                value={editForm.photo}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, photo: e.target.value })
+                }
+                placeholder="https://…"
               />
             </FormField>
 
             <FormField label="Email Address">
-              <input
-                className={inputClass}
-                value={editForm.email}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    email: e.target.value,
-                  })
-                }
-              />
+              <input className={inputClass} value={editForm.email} readOnly />
             </FormField>
 
             <FormField label="Designation">
               <input
                 className={inputClass}
                 value={editForm.designation}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    designation: e.target.value,
-                  })
-                }
+                readOnly
               />
             </FormField>
 
@@ -750,38 +732,19 @@ export default function FacultyProfilePage() {
               <input
                 className={inputClass}
                 value={editForm.specialization}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    specialization: e.target.value,
-                  })
-                }
+                readOnly
               />
             </FormField>
 
             <FormField label="Office">
-              <input
-                className={inputClass}
-                value={editForm.office}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    office: e.target.value,
-                  })
-                }
-              />
+              <input className={inputClass} value={editForm.office} readOnly />
             </FormField>
 
             <FormField label="Highest Qualification">
               <input
                 className={inputClass}
                 value={editForm.qualification}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    qualification: e.target.value,
-                  })
-                }
+                readOnly
               />
             </FormField>
 
@@ -789,32 +752,40 @@ export default function FacultyProfilePage() {
               <input
                 className={inputClass}
                 value={editForm.officeHours}
-                onChange={(e) =>
-                  setEditForm({
-                    ...editForm,
-                    officeHours: e.target.value,
-                  })
-                }
+                readOnly
               />
             </FormField>
           </div>
 
+          {saveError && (
+            <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+              <AlertCircle size={15} /> {saveError}
+            </div>
+          )}
+
           <div className="mt-6 flex justify-end gap-3">
             <button
+              type="button"
               onClick={() => setEditOpen(false)}
-              className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
             >
               Cancel
             </button>
-
             <button
-              onClick={saveProfile}
-              className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+              type="button"
+              onClick={() => void saveProfile()}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
             >
+              {saving && <Loader2 size={14} className="animate-spin" />}
               Save Changes
             </button>
           </div>
         </Modal>
+      )}
+
+      {changeOpen && (
+        <ChangePasswordModal onClose={() => setChangeOpen(false)} />
       )}
 
       {/* Add Skill Modal */}
@@ -964,6 +935,7 @@ function SecurityRow({
   status,
   positive,
   action,
+  onClick,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -971,14 +943,15 @@ function SecurityRow({
   status: string;
   positive?: boolean;
   action?: boolean;
+  onClick?: () => void;
 }) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+  const content = (
+    <>
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-gray-600 shadow-sm">
         {icon}
       </div>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 text-left">
         <p className="text-sm font-semibold text-gray-800">{title}</p>
         <p className="mt-1 text-xs text-gray-400">{description}</p>
       </div>
@@ -994,6 +967,24 @@ function SecurityRow({
       >
         {status}
       </span>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 transition hover:bg-gray-100"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+      {content}
     </div>
   );
 }

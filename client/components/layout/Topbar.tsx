@@ -1,12 +1,27 @@
 "use client";
 
 import { Bell, Menu, Search, ChevronDown, Command } from "lucide-react";
+import { useSession } from "next-auth/react";
 
 type TopbarProps = {
   onMenuClick?: () => void;
 };
 
+function getInitials(name?: string | null) {
+  if (!name) return "U";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "U";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export default function Topbar({ onMenuClick }: TopbarProps) {
+  const { data: session } = useSession();
+  const name = session?.user?.name ?? "Student";
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  const subtitle =
+    role === "admin" ? "Administrator" : role === "teacher" ? "Faculty" : "Student";
+
   return (
     <header className="sticky top-0 z-30 flex h-19 items-center justify-between border-b border-gray-200 bg-white/90 px-5 backdrop-blur-xl lg:px-8">
       <div className="flex items-center gap-4">
@@ -45,15 +60,15 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
 
         <button className="flex items-center gap-3 rounded-xl p-1.5 pr-2 hover:bg-gray-50">
           <div className="grid h-9 w-9 place-items-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600 text-xs font-bold text-white">
-            AM
+            {getInitials(name)}
           </div>
 
           <div className="hidden text-left sm:block">
             <div className="text-[13px] font-semibold text-gray-900">
-              Abdullah Muhammad
+              {name}
             </div>
             <div className="text-[11px] text-gray-400">
-              Software Engineering
+              {subtitle}
             </div>
           </div>
 

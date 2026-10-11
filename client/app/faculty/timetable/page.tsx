@@ -2,135 +2,44 @@
 
 import { useMemo, useState } from "react";
 import {
+  AlertCircle,
   CalendarDays,
   Clock3,
   MapPin,
-  Users,
   Plus,
   ChevronLeft,
   ChevronRight,
-  MoreHorizontal,
   Pencil,
   Trash2,
   BookOpen,
   UserCheck,
   CalendarRange,
   X,
+  Loader2,
 } from "lucide-react";
+
+import {
+  api,
+  ApiError,
+  type CourseDTO,
+  type TimetableEntryDTO,
+} from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
+import { DaysOfWeek } from "@/lib/constants";
 
 type ClassSession = {
   id: string;
+  courseId: string;
   courseCode: string;
   courseName: string;
   day: string;
   start: string;
   end: string;
   room: string;
-  students: number;
-  type: "Lecture" | "Lab" | "Tutorial";
   color: string;
 };
 
-const initialSessions: ClassSession[] = [
-  {
-    id: "session-001",
-    courseCode: "SE-401",
-    courseName: "Software Architecture",
-    day: "Monday",
-    start: "09:00",
-    end: "10:00",
-    room: "Lab 3",
-    students: 42,
-    type: "Lecture",
-    color: "indigo",
-  },
-  {
-    id: "session-002",
-    courseCode: "SE-406",
-    courseName: "Web Engineering",
-    day: "Monday",
-    start: "11:00",
-    end: "12:00",
-    room: "Lab 2",
-    students: 48,
-    type: "Lab",
-    color: "violet",
-  },
-  {
-    id: "session-003",
-    courseCode: "AI-402",
-    courseName: "Artificial Intelligence",
-    day: "Tuesday",
-    start: "11:00",
-    end: "12:00",
-    room: "A-204",
-    students: 46,
-    type: "Lecture",
-    color: "emerald",
-  },
-  {
-    id: "session-004",
-    courseCode: "SE-407",
-    courseName: "Software Testing",
-    day: "Wednesday",
-    start: "10:00",
-    end: "11:00",
-    room: "B-112",
-    students: 44,
-    type: "Lecture",
-    color: "amber",
-  },
-  {
-    id: "session-005",
-    courseCode: "CS-405",
-    courseName: "Cyber Security",
-    day: "Wednesday",
-    start: "01:00",
-    end: "02:00",
-    room: "Cyber Lab",
-    students: 40,
-    type: "Lab",
-    color: "rose",
-  },
-  {
-    id: "session-006",
-    courseCode: "SE-401",
-    courseName: "Software Architecture",
-    day: "Thursday",
-    start: "09:00",
-    end: "10:00",
-    room: "Lab 3",
-    students: 42,
-    type: "Tutorial",
-    color: "indigo",
-  },
-  {
-    id: "session-007",
-    courseCode: "SE-406",
-    courseName: "Web Engineering",
-    day: "Thursday",
-    start: "01:00",
-    end: "02:00",
-    room: "Lab 2",
-    students: 48,
-    type: "Lecture",
-    color: "violet",
-  },
-  {
-    id: "session-008",
-    courseCode: "DS-408",
-    courseName: "Distributed Systems",
-    day: "Friday",
-    start: "02:00",
-    end: "03:00",
-    room: "A-301",
-    students: 52,
-    type: "Lecture",
-    color: "cyan",
-  },
-];
-
-const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const days = DaysOfWeek.filter((day) => day !== "Saturday");
 
 const timeSlots = [
   "08:00",
@@ -144,19 +53,71 @@ const timeSlots = [
   "04:00",
 ];
 
-const courseOptions = [
-  "SE-401",
-  "SE-406",
-  "SE-407",
-  "AI-402",
-  "CS-405",
-  "DS-408",
-];
+type TimetableData = {
+  entries: TimetableEntryDTO[];
+  courses: CourseDTO[];
+};
+
+function toMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return (hours || 0) * 60 + (minutes || 0);
+}
+
+function slotMinutes(slot: string) {
+  const [rawHours, minutes] = slot.split(":").map(Number);
+  const hours = rawHours < 7 ? rawHours + 12 : rawHours;
+  return hours * 60 + (minutes || 0);
+}
+
+function slotForTime(start: string) {
+  const target = toMinutes(start);
+  let best = timeSlots[0];
+  let bestStart = -Infinity;
+  for (const slot of timeSlots) {
+    const value = slotMinutes(slot);
+    if (value <= target && value > bestStart) {
+      bestStart = value;
+      best = slot;
+    }
+  }
+  return best;
+}
 
 export default function FacultyTimetablePage() {
-  const [sessions, setSessions] = useState(initialSessions);
+  const { data, loading, error, reload } = useApiResource<TimetableData>(
+    async () => {
+      const me = await api.teachers.me();
+      const [entries, courses] = await Promise.all([
+        api.timetable.me(),
+        api.courses.list({ teacherId: me.id }),
+      ]);
+      return { entries, courses };
+    },
+  );
+
+  const courses = data?.courses ?? [];
+
+  const sessions = useMemo<ClassSession[]>(() => {
+    const list = data?.entries ?? [];
+    return list.map((entry) => ({
+      id: entry.id,
+      courseId: entry.courseId ?? "",
+      courseCode: entry.course?.code ?? "—",
+      courseName: entry.course?.title ?? "—",
+      day: entry.day,
+      start: entry.startTime,
+      end: entry.endTime,
+      room: entry.room,
+      color: getCourseColor(entry.course?.code ?? entry.id),
+    }));
+  }, [data]);
+
+  const courseCodes = useMemo(() => {
+    const list = data?.courses ?? [];
+    return Array.from(new Set(list.map((course) => course.code)));
+  }, [data]);
+
   const [selectedCourse, setSelectedCourse] = useState("All Courses");
-  const [selectedType, setSelectedType] = useState("All Types");
   const [selectedSession, setSelectedSession] = useState<ClassSession | null>(
     null,
   );
@@ -165,138 +126,130 @@ export default function FacultyTimetablePage() {
   const [editingSession, setEditingSession] = useState<ClassSession | null>(
     null,
   );
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [form, setForm] = useState({
-    courseCode: "SE-401",
+    courseId: "",
     day: "Monday",
     start: "09:00",
     end: "10:00",
     room: "",
-    students: "42",
-    type: "Lecture",
   });
 
   const filteredSessions = useMemo(() => {
-    return sessions.filter((session) => {
-      const courseMatch =
+    return sessions.filter(
+      (session) =>
         selectedCourse === "All Courses" ||
-        session.courseCode === selectedCourse;
+        session.courseCode === selectedCourse,
+    );
+  }, [sessions, selectedCourse]);
 
-      const typeMatch =
-        selectedType === "All Types" || session.type === selectedType;
-
-      return courseMatch && typeMatch;
-    });
-  }, [sessions, selectedCourse, selectedType]);
+  const grouped = useMemo(() => {
+    const map: Record<string, Record<string, ClassSession>> = {};
+    for (const day of days) map[day] = {};
+    for (const session of filteredSessions) {
+      const row = map[session.day];
+      if (!row) continue;
+      row[slotForTime(session.start)] = session;
+    }
+    return map;
+  }, [filteredSessions]);
 
   const totalClasses = sessions.length;
-  const totalStudents = sessions.reduce(
-    (sum, session) => sum + session.students,
-    0,
-  );
+  const weeklyMinutes = sessions.reduce((sum, session) => {
+    const duration = toMinutes(session.end) - toMinutes(session.start);
+    return sum + (duration > 0 ? duration : 0);
+  }, 0);
+  const weeklyHours = Math.round((weeklyMinutes / 60) * 10) / 10;
+  const weeklyHoursLabel = Number.isInteger(weeklyHours)
+    ? `${weeklyHours}h`
+    : `${weeklyHours.toFixed(1)}h`;
   const uniqueRooms = new Set(sessions.map((s) => s.room)).size;
-  const labs = sessions.filter((s) => s.type === "Lab").length;
+  const activeCourses = new Set(sessions.map((s) => s.courseCode)).size;
 
-  const getSession = (day: string, time: string) => {
-    return filteredSessions.find(
-      (session) => session.day === day && session.start === time,
-    );
-  };
+  const roomUsage = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const session of sessions) {
+      if (!session.room) continue;
+      map.set(session.room, (map.get(session.room) ?? 0) + 1);
+    }
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [sessions]);
+
+  const getSession = (day: string, time: string) => grouped[day]?.[time];
 
   const resetForm = () => {
     setForm({
-      courseCode: "SE-401",
+      courseId: "",
       day: "Monday",
       start: "09:00",
       end: "10:00",
       room: "",
-      students: "42",
-      type: "Lecture",
     });
   };
 
-  const createSession = () => {
-    if (!form.room.trim()) return;
+  const createSession = async () => {
+    if (!form.courseId || !form.room.trim()) return;
 
-    const courseNames: Record<string, string> = {
-      "SE-401": "Software Architecture",
-      "SE-406": "Web Engineering",
-      "SE-407": "Software Testing",
-      "AI-402": "Artificial Intelligence",
-      "CS-405": "Cyber Security",
-      "DS-408": "Distributed Systems",
-    };
-
-    const newSession: ClassSession = {
-      id: `session-${Date.now()}`,
-      courseCode: form.courseCode,
-      courseName: courseNames[form.courseCode],
-      day: form.day,
-      start: form.start,
-      end: form.end,
-      room: form.room,
-      students: Number(form.students) || 0,
-      type: form.type as ClassSession["type"],
-      color: getCourseColor(form.courseCode),
-    };
-
-    setSessions((current) => [...current, newSession]);
-    resetForm();
-    setShowCreate(false);
+    setNotice(null);
+    try {
+      await api.timetable.create({
+        courseId: form.courseId,
+        day: form.day,
+        startTime: form.start,
+        endTime: form.end,
+        room: form.room,
+      });
+      resetForm();
+      setShowCreate(false);
+      await reload();
+    } catch (e) {
+      setNotice(
+        e instanceof ApiError ? e.message : "Failed to create session",
+      );
+    }
   };
 
-  const saveEdit = () => {
-    if (!editingSession || !form.room.trim()) return;
+  const saveEdit = async () => {
+    if (!editingSession || !form.courseId || !form.room.trim()) return;
 
-    const courseNames: Record<string, string> = {
-      "SE-401": "Software Architecture",
-      "SE-406": "Web Engineering",
-      "SE-407": "Software Testing",
-      "AI-402": "Artificial Intelligence",
-      "CS-405": "Cyber Security",
-      "DS-408": "Distributed Systems",
-    };
-
-    setSessions((current) =>
-      current.map((session) =>
-        session.id === editingSession.id
-          ? {
-              ...session,
-              courseCode: form.courseCode,
-              courseName: courseNames[form.courseCode],
-              day: form.day,
-              start: form.start,
-              end: form.end,
-              room: form.room,
-              students: Number(form.students) || 0,
-              type: form.type as ClassSession["type"],
-              color: getCourseColor(form.courseCode),
-            }
-          : session,
-      ),
-    );
-
-    setEditingSession(null);
-    resetForm();
+    setNotice(null);
+    try {
+      await api.timetable.update(editingSession.id, {
+        courseId: form.courseId,
+        day: form.day,
+        startTime: form.start,
+        endTime: form.end,
+        room: form.room,
+      });
+      setEditingSession(null);
+      resetForm();
+      await reload();
+    } catch (e) {
+      setNotice(e instanceof ApiError ? e.message : "Failed to update session");
+    }
   };
 
-  const deleteSession = (id: string) => {
-    setSessions((current) => current.filter((session) => session.id !== id));
-
-    setSelectedSession(null);
+  const deleteSession = async (id: string) => {
+    setNotice(null);
+    try {
+      await api.timetable.remove(id);
+      setSelectedSession(null);
+      await reload();
+    } catch (e) {
+      setNotice(e instanceof ApiError ? e.message : "Failed to delete session");
+    }
   };
 
   const openEdit = (session: ClassSession) => {
     setEditingSession(session);
 
     setForm({
-      courseCode: session.courseCode,
+      courseId: session.courseId,
       day: session.day,
       start: session.start,
       end: session.end,
       room: session.room,
-      students: String(session.students),
-      type: session.type,
     });
   };
 
@@ -336,6 +289,12 @@ export default function FacultyTimetablePage() {
         </div>
       </div>
 
+      {notice && (
+        <div className="mt-5 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+          {notice}
+        </div>
+      )}
+
       {/* Stats */}
       <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
@@ -346,10 +305,10 @@ export default function FacultyTimetablePage() {
         />
 
         <Stat
-          label="Students Taught"
-          value={String(totalStudents)}
-          description="Total weekly class capacity"
-          icon={Users}
+          label="Weekly Hours"
+          value={weeklyHoursLabel}
+          description="Total weekly teaching time"
+          icon={Clock3}
         />
 
         <Stat
@@ -360,9 +319,9 @@ export default function FacultyTimetablePage() {
         />
 
         <Stat
-          label="Lab Sessions"
-          value={String(labs)}
-          description="Practical teaching sessions"
+          label="Active Courses"
+          value={String(activeCourses)}
+          description="Distinct courses scheduled"
           icon={BookOpen}
         />
       </div>
@@ -375,25 +334,14 @@ export default function FacultyTimetablePage() {
           className="h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-600 outline-none focus:border-indigo-400"
         >
           <option>All Courses</option>
-          {courseOptions.map((course) => (
+          {courseCodes.map((course) => (
             <option key={course}>{course}</option>
           ))}
         </select>
 
-        <select
-          value={selectedType}
-          onChange={(e) => setSelectedType(e.target.value)}
-          className="h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-600 outline-none focus:border-indigo-400"
-        >
-          <option>All Types</option>
-          <option>Lecture</option>
-          <option>Lab</option>
-          <option>Tutorial</option>
-        </select>
-
         <div className="ml-auto flex items-center gap-2 text-xs text-gray-400">
           <Clock3 size={14} />
-          Fall 2026 · Week 05
+          Current Academic Week
         </div>
       </div>
 
@@ -417,172 +365,185 @@ export default function FacultyTimetablePage() {
         </button>
       </div>
 
-      {/* Desktop Timetable */}
-      <div className="mt-5 hidden overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-[0_2px_12px_rgba(15,23,42,0.03)] lg:block">
-        <div className="min-w-262.5">
-          {/* Day Header */}
-          <div className="grid grid-cols-[90px_repeat(5,1fr)] border-b border-gray-200">
-            <div className="border-r border-gray-100 p-4">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                Time
-              </span>
-            </div>
+      {loading ? (
+        <div className="mt-5 flex items-center gap-2 rounded-2xl border border-gray-200 bg-white p-8 text-sm text-gray-500">
+          <Loader2 size={16} className="animate-spin" />
+          Loading timetable…
+        </div>
+      ) : error ? (
+        <div className="mt-5 flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 p-6 text-sm text-red-600">
+          <AlertCircle size={16} />
+          {error}
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-12 text-center">
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-gray-100 text-gray-400">
+            <CalendarDays size={20} />
+          </div>
+          <p className="mt-4 text-sm font-semibold text-gray-800">
+            No classes scheduled
+          </p>
+          <p className="mt-1 text-xs text-gray-400">
+            Add a session to begin building your timetable.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Desktop Timetable */}
+          <div className="mt-5 hidden overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-[0_2px_12px_rgba(15,23,42,0.03)] lg:block">
+            <div className="min-w-262.5">
+              {/* Day Header */}
+              <div className="grid grid-cols-[90px_repeat(5,1fr)] border-b border-gray-200">
+                <div className="border-r border-gray-100 p-4">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                    Time
+                  </span>
+                </div>
 
-            {days.map((day) => (
-              <div
-                key={day}
-                className="border-r border-gray-100 p-4 text-center last:border-r-0"
-              >
-                <p className="text-xs font-bold text-gray-900">{day}</p>
-                <p className="mt-1 text-[10px] text-gray-400">
-                  {getDateForDay(day)}
-                </p>
+                {days.map((day) => (
+                  <div
+                    key={day}
+                    className="border-r border-gray-100 p-4 text-center last:border-r-0"
+                  >
+                    <p className="text-xs font-bold text-gray-900">{day}</p>
+                    <p className="mt-1 text-[10px] text-gray-400">
+                      {getDateForDay(day)}
+                    </p>
+                  </div>
+                ))}
               </div>
-            ))}
+
+              {/* Rows */}
+              {timeSlots.map((time) => (
+                <div
+                  key={time}
+                  className="grid grid-cols-[90px_repeat(5,1fr)] border-b border-gray-100 last:border-b-0"
+                >
+                  <div className="border-r border-gray-100 px-4 py-5 text-[11px] font-medium text-gray-400">
+                    {formatTime(time)}
+                  </div>
+
+                  {days.map((day) => {
+                    const session = getSession(day, time);
+
+                    return (
+                      <div
+                        key={`${day}-${time}`}
+                        className="min-h-25 border-r border-gray-100 p-2 last:border-r-0"
+                      >
+                        {session && (
+                          <button
+                            onClick={() => setSelectedSession(session)}
+                            className={[
+                              "h-full min-h-21 w-full rounded-xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md",
+                              getCourseStyles(session.color),
+                            ].join(" ")}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="text-[10px] font-bold">
+                                {session.courseCode}
+                              </span>
+                            </div>
+
+                            <p className="mt-2 line-clamp-2 text-xs font-semibold">
+                              {session.courseName}
+                            </p>
+
+                            <div className="mt-3 space-y-1 text-[10px] opacity-70">
+                              <div className="flex items-center gap-1.5">
+                                <Clock3 size={10} />
+                                {formatTime(session.start)} —{" "}
+                                {formatTime(session.end)}
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                <MapPin size={10} />
+                                {session.room}
+                              </div>
+                            </div>
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Rows */}
-          {timeSlots.map((time) => (
-            <div
-              key={time}
-              className="grid grid-cols-[90px_repeat(5,1fr)] border-b border-gray-100 last:border-b-0"
-            >
-              <div className="border-r border-gray-100 px-4 py-5 text-[11px] font-medium text-gray-400">
-                {formatTime(time)}
-              </div>
+          {/* Mobile Schedule */}
+          <div className="mt-5 space-y-3 lg:hidden">
+            {days.map((day) => {
+              const daySessions = filteredSessions.filter(
+                (session) => session.day === day,
+              );
 
-              {days.map((day) => {
-                const session = getSession(day, time);
+              return (
+                <div
+                  key={day}
+                  className="rounded-2xl border border-gray-200 bg-white p-4"
+                >
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">{day}</h3>
+                      <p className="text-[10px] text-gray-400">
+                        {getDateForDay(day)}
+                      </p>
+                    </div>
 
-                return (
-                  <div
-                    key={`${day}-${time}`}
-                    className="min-h-25 border-r border-gray-100 p-2 last:border-r-0"
-                  >
-                    {session && (
-                      <button
-                        onClick={() => setSelectedSession(session)}
-                        className={[
-                          "h-full min-h-21 w-full rounded-xl border p-3 text-left transition hover:-translate-y-0.5 hover:shadow-md",
-                          getCourseStyles(session.color),
-                        ].join(" ")}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <span className="text-[10px] font-bold">
-                            {session.courseCode}
-                          </span>
-
-                          <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[9px] font-semibold">
-                            {session.type}
-                          </span>
-                        </div>
-
-                        <p className="mt-2 line-clamp-2 text-xs font-semibold">
-                          {session.courseName}
-                        </p>
-
-                        <div className="mt-3 space-y-1 text-[10px] opacity-70">
-                          <div className="flex items-center gap-1.5">
-                            <Clock3 size={10} />
-                            {formatTime(session.start)} —{" "}
-                            {formatTime(session.end)}
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <MapPin size={10} />
-                            {session.room}
-                          </div>
-                        </div>
-                      </button>
-                    )}
+                    <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold text-indigo-600">
+                      {daySessions.length} classes
+                    </span>
                   </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
 
-      {/* Mobile Schedule */}
-      <div className="mt-5 space-y-3 lg:hidden">
-        {days.map((day) => {
-          const daySessions = filteredSessions.filter(
-            (session) => session.day === day,
-          );
+                  {daySessions.length === 0 ? (
+                    <div className="rounded-xl bg-gray-50 p-5 text-center text-xs text-gray-400">
+                      No classes scheduled
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {daySessions.map((session) => (
+                        <button
+                          key={session.id}
+                          onClick={() => setSelectedSession(session)}
+                          className={[
+                            "w-full rounded-xl border p-4 text-left",
+                            getCourseStyles(session.color),
+                          ].join(" ")}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <p className="text-xs font-bold">
+                                {session.courseCode}
+                              </p>
+                              <p className="mt-1 text-sm font-semibold">
+                                {session.courseName}
+                              </p>
+                            </div>
+                          </div>
 
-          return (
-            <div
-              key={day}
-              className="rounded-2xl border border-gray-200 bg-white p-4"
-            >
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-gray-900">{day}</h3>
-                  <p className="text-[10px] text-gray-400">
-                    {getDateForDay(day)}
-                  </p>
+                          <div className="mt-3 flex flex-wrap gap-3 text-[10px] opacity-70">
+                            <span className="flex items-center gap-1">
+                              <Clock3 size={11} />
+                              {formatTime(session.start)} —{" "}
+                              {formatTime(session.end)}
+                            </span>
+
+                            <span className="flex items-center gap-1">
+                              <MapPin size={11} />
+                              {session.room}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-
-                <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold text-indigo-600">
-                  {daySessions.length} classes
-                </span>
-              </div>
-
-              {daySessions.length === 0 ? (
-                <div className="rounded-xl bg-gray-50 p-5 text-center text-xs text-gray-400">
-                  No classes scheduled
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {daySessions.map((session) => (
-                    <button
-                      key={session.id}
-                      onClick={() => setSelectedSession(session)}
-                      className={[
-                        "w-full rounded-xl border p-4 text-left",
-                        getCourseStyles(session.color),
-                      ].join(" ")}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-xs font-bold">
-                            {session.courseCode}
-                          </p>
-                          <p className="mt-1 text-sm font-semibold">
-                            {session.courseName}
-                          </p>
-                        </div>
-
-                        <span className="rounded-full bg-white/70 px-2 py-1 text-[9px] font-semibold">
-                          {session.type}
-                        </span>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-3 text-[10px] opacity-70">
-                        <span className="flex items-center gap-1">
-                          <Clock3 size={11} />
-                          {formatTime(session.start)} —{" "}
-                          {formatTime(session.end)}
-                        </span>
-
-                        <span className="flex items-center gap-1">
-                          <MapPin size={11} />
-                          {session.room}
-                        </span>
-
-                        <span className="flex items-center gap-1">
-                          <Users size={11} />
-                          {session.students}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Bottom Panels */}
       <div className="mt-5 grid gap-5 xl:grid-cols-3">
@@ -604,19 +565,21 @@ export default function FacultyTimetablePage() {
 
           <div className="mt-5">
             <div className="flex items-end justify-between">
-              <span className="text-2xl font-bold text-gray-950">8</span>
+              <span className="text-2xl font-bold text-gray-950">
+                {weeklyHours}
+              </span>
               <span className="text-[11px] text-gray-400">hours / week</span>
             </div>
 
             <div className="mt-3 h-2 rounded-full bg-gray-100">
               <div
                 className="h-full rounded-full bg-indigo-500"
-                style={{ width: "64%" }}
+                style={{ width: "0%" }}
               />
             </div>
 
             <p className="mt-3 text-[11px] text-gray-400">
-              64% of recommended weekly teaching capacity.
+              Teaching capacity is not tracked by the backend.
             </p>
           </div>
         </div>
@@ -638,10 +601,15 @@ export default function FacultyTimetablePage() {
           </div>
 
           <div className="mt-5 space-y-3">
-            <RoomRow room="Lab 3" classes={2} />
-            <RoomRow room="Lab 2" classes={2} />
-            <RoomRow room="Cyber Lab" classes={1} />
-            <RoomRow room="A-301" classes={1} />
+            {roomUsage.length === 0 ? (
+              <p className="text-[11px] text-gray-400">
+                No classrooms assigned yet.
+              </p>
+            ) : (
+              roomUsage.map(([room, count]) => (
+                <RoomRow key={room} room={room} classes={count} />
+              ))
+            )}
           </div>
         </div>
 
@@ -662,9 +630,8 @@ export default function FacultyTimetablePage() {
           </div>
 
           <p className="mt-4 text-xs leading-5 text-indigo-900/65">
-            Faculty sessions will later be loaded from the university timetable
-            API. Room conflicts, faculty conflicts and student schedule
-            conflicts can also be validated by the backend.
+            Sessions are loaded from the university timetable API. Room
+            conflicts and faculty conflicts are validated by the backend.
           </p>
         </div>
       </div>
@@ -684,10 +651,6 @@ export default function FacultyTimetablePage() {
                     {selectedSession.courseName}
                   </h2>
                 </div>
-
-                <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-gray-600 shadow-sm">
-                  {selectedSession.type}
-                </span>
               </div>
             </div>
 
@@ -709,13 +672,7 @@ export default function FacultyTimetablePage() {
               <Info
                 icon={MapPin}
                 label="Classroom"
-                value={selectedSession.room}
-              />
-
-              <Info
-                icon={Users}
-                label="Students"
-                value={`${selectedSession.students} enrolled`}
+                value={selectedSession.room || "—"}
               />
             </div>
 
@@ -756,6 +713,7 @@ export default function FacultyTimetablePage() {
           <SessionForm
             form={form}
             setForm={setForm}
+            courses={courses}
             editing={Boolean(editingSession)}
             onCancel={() => {
               setShowCreate(false);
@@ -872,20 +830,20 @@ function Modal({
 function SessionForm({
   form,
   setForm,
+  courses,
   editing,
   onCancel,
   onSubmit,
 }: {
   form: {
-    courseCode: string;
+    courseId: string;
     day: string;
     start: string;
     end: string;
     room: string;
-    students: string;
-    type: string;
   };
   setForm: React.Dispatch<React.SetStateAction<typeof form>>;
+  courses: CourseDTO[];
   editing: boolean;
   onCancel: () => void;
   onSubmit: () => void;
@@ -895,35 +853,21 @@ function SessionForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Course">
           <select
-            value={form.courseCode}
+            value={form.courseId}
             onChange={(e) =>
               setForm((current) => ({
                 ...current,
-                courseCode: e.target.value,
+                courseId: e.target.value,
               }))
             }
             className="form-select"
           >
-            {courseOptions.map((course) => (
-              <option key={course}>{course}</option>
+            <option value="">Select course…</option>
+            {courses.map((course) => (
+              <option key={course.id} value={course.id}>
+                {course.code} · {course.title}
+              </option>
             ))}
-          </select>
-        </Field>
-
-        <Field label="Session Type">
-          <select
-            value={form.type}
-            onChange={(e) =>
-              setForm((current) => ({
-                ...current,
-                type: e.target.value,
-              }))
-            }
-            className="form-select"
-          >
-            <option>Lecture</option>
-            <option>Lab</option>
-            <option>Tutorial</option>
           </select>
         </Field>
 
@@ -987,24 +931,9 @@ function SessionForm({
         </Field>
       </div>
 
-      <Field label="Expected Students">
-        <input
-          type="number"
-          min="0"
-          value={form.students}
-          onChange={(e) =>
-            setForm((current) => ({
-              ...current,
-              students: e.target.value,
-            }))
-          }
-          className="form-input"
-        />
-      </Field>
-
       <div className="rounded-xl border border-amber-100 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-        In the backend, the timetable service will validate room availability,
-        faculty conflicts and overlapping sessions before saving.
+        The timetable service validates room availability, faculty conflicts and
+        overlapping sessions before saving.
       </div>
 
       <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
@@ -1058,16 +987,14 @@ function getCourseStyles(color: string) {
 }
 
 function getCourseColor(courseCode: string) {
-  const colors: Record<string, string> = {
-    "SE-401": "indigo",
-    "SE-406": "violet",
-    "SE-407": "amber",
-    "AI-402": "emerald",
-    "CS-405": "rose",
-    "DS-408": "cyan",
-  };
+  const colors = ["indigo", "violet", "emerald", "amber", "rose", "cyan"];
+  let hash = 0;
 
-  return colors[courseCode] || "indigo";
+  for (let i = 0; i < courseCode.length; i += 1) {
+    hash = (hash * 31 + courseCode.charCodeAt(i)) % colors.length;
+  }
+
+  return colors[hash] || "indigo";
 }
 
 function formatTime(time: string) {
@@ -1091,5 +1018,5 @@ function getDateForDay(day: string) {
     Friday: "25 Sep",
   };
 
-  return dates[day];
+  return dates[day] ?? "";
 }

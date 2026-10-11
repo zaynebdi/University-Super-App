@@ -1,12 +1,15 @@
+"use client";
+
 import {
+  AlertCircle,
   ArrowUpRight,
   BookOpen,
   BrainCircuit,
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
-  FileText,
   GraduationCap,
+  Loader2,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
@@ -14,53 +17,66 @@ import {
 import AppShell from "@/components/layout/AppShell";
 import Card from "@/components/ui/Card";
 import StatCard from "@/components/ui/StatCard";
+import {
+  api,
+  type AnnouncementDTO,
+  type EnrolledCourseDTO,
+  type StudentAttendanceSummaryDTO,
+  type StudentProfileDTO,
+  type StudentResultsDTO,
+  type TimetableEntryDTO,
+} from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
 
-const courses = [
-  {
-    name: "Software Architecture",
-    code: "SE-401",
-    progress: 88,
-  },
-  {
-    name: "Artificial Intelligence",
-    code: "AI-402",
-    progress: 76,
-  },
-  {
-    name: "Cyber Security",
-    code: "CS-405",
-    progress: 91,
-  },
-  {
-    name: "Web Engineering",
-    code: "SE-406",
-    progress: 84,
-  },
-];
-
-const schedule = [
-  {
-    time: "09:00",
-    title: "Software Architecture",
-    room: "Lab 3",
-    duration: "90 min",
-  },
-  {
-    time: "11:00",
-    title: "Artificial Intelligence",
-    room: "Room A-204",
-    duration: "90 min",
-    active: true,
-  },
-  {
-    time: "14:00",
-    title: "FYP Project Meeting",
-    room: "Innovation Hub",
-    duration: "60 min",
-  },
-];
+type Data = {
+  profile: StudentProfileDTO;
+  courses: EnrolledCourseDTO[];
+  results: StudentResultsDTO;
+  attendance: StudentAttendanceSummaryDTO[];
+  timetable: TimetableEntryDTO[];
+  announcements: AnnouncementDTO[];
+};
 
 export default function StudentDashboard() {
+  const { data, loading, error } = useApiResource<Data>(async () => {
+    const profile = await api.students.me();
+    const [courses, results, attendance, timetable, announcements] =
+      await Promise.all([
+        api.students.courses(profile.id),
+        api.results.byStudent(profile.id),
+        api.attendance.byStudent(profile.id),
+        api.timetable.me(),
+        api.announcements.list(),
+      ]);
+    return { profile, courses, results, attendance, timetable, announcements };
+  });
+
+  const courses = data?.courses ?? [];
+  const attendance = data?.attendance ?? [];
+  const timetable = data?.timetable ?? [];
+  const announcements = data?.announcements ?? [];
+  const totalCredits = courses.reduce((sum, c) => sum + c.creditHours, 0);
+  const overallAttendance = attendance.length
+    ? Math.round(
+        attendance.reduce((sum, a) => sum + a.percentage, 0) /
+          attendance.length
+      )
+    : 0;
+  const attendanceByCourse = new Map(
+    attendance.map((a) => [a.courseId, a.percentage])
+  );
+  const needsAttention = attendance.filter((a) => a.belowThreshold);
+  const gpa = data?.results.gpa ?? 0;
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+  const todayName = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+  });
+  const todayClasses = timetable.filter((entry) => entry.day === todayName);
+
   return (
     <AppShell>
       <div className="mx-auto max-w-375">
@@ -68,11 +84,12 @@ export default function StudentDashboard() {
         <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-indigo-600">
-              UniSphere · Tuesday, September 23
+              UniSphere{data ? ` · ${today}` : ""}
             </p>
 
             <h1 className="text-3xl font-bold tracking-tight text-gray-950">
-              Good evening, Abdullah 👋
+              Good evening
+              {data?.profile.name ? `, ${data.profile.name}` : ""} 👋
             </h1>
 
             <p className="mt-2 text-sm text-gray-500">
@@ -105,8 +122,9 @@ export default function StudentDashboard() {
               </h2>
 
               <p className="mt-4 max-w-xl text-sm leading-6 text-indigo-100">
-                You&apos;re on track this semester. Your strongest momentum is
-                in Software Architecture and Web Engineering.
+                You&apos;re enrolled in {courses.length}{" "}
+                {courses.length === 1 ? "course" : "courses"} with{" "}
+                {overallAttendance}% average attendance this semester.
               </p>
             </div>
 
@@ -114,19 +132,21 @@ export default function StudentDashboard() {
               <p className="text-xs text-indigo-200">Semester GPA</p>
 
               <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-4xl font-bold">3.72</span>
-                <span className="text-xs font-semibold text-emerald-300">
-                  ↑ 0.18
+                <span className="text-4xl font-bold">
+                  {data ? gpa.toFixed(2) : "—"}
                 </span>
               </div>
 
               <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full w-[86%] rounded-full bg-white" />
+                <div
+                  className="h-full rounded-full bg-white"
+                  style={{
+                    width: `${data ? Math.min(Math.max((gpa / 4) * 100, 0), 100) : 0}%`,
+                  }}
+                />
               </div>
 
-              <p className="mt-2 text-[11px] text-indigo-200">
-                Top 12% of your program
-              </p>
+              <p className="mt-2 text-[11px] text-indigo-200">Out of 4.00</p>
             </div>
           </div>
         </section>
@@ -135,187 +155,213 @@ export default function StudentDashboard() {
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Current GPA"
-            value="3.72"
-            description="+0.18 compared with last semester"
+            value={data ? gpa.toFixed(2) : "—"}
+            description="Based on recorded results"
             icon={TrendingUp}
           />
 
           <StatCard
             label="Attendance"
-            value="91%"
-            description="Above the required 80%"
+            value={`${overallAttendance}%`}
+            description="Average across your courses"
             icon={ClipboardCheck}
           />
 
           <StatCard
-            label="Assignments"
-            value="8 / 10"
-            description="2 assignments due this week"
-            icon={FileText}
+            label="Enrolled Courses"
+            value={String(courses.length)}
+            description={`${totalCredits} total credits`}
+            icon={BookOpen}
           />
 
           <StatCard
-            label="Credits Earned"
-            value="96 / 132"
-            description="36 credits remaining"
+            label="Scheduled Classes"
+            value={String(timetable.length)}
+            description="Weekly sessions"
             icon={GraduationCap}
           />
         </div>
 
-        {/* Main grid */}
-        <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]">
-          {/* Academic Progress */}
-          <Card className="p-6">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-gray-950">Academic progress</h3>
-                <p className="mt-1 text-xs text-gray-400">
-                  Current semester performance
-                </p>
-              </div>
-
-              <button className="rounded-lg p-2 text-gray-400 hover:bg-gray-50">
-                <ArrowUpRight size={17} />
-              </button>
-            </div>
-
-            <div className="space-y-6">
-              {courses.map((course) => (
-                <div key={course.code}>
-                  <div className="mb-2 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">
-                        {course.name}
-                      </p>
-                      <p className="mt-0.5 text-[10px] text-gray-400">
-                        {course.code}
-                      </p>
-                    </div>
-
-                    <span className="text-xs font-bold text-gray-700">
-                      {course.progress}%
-                    </span>
-                  </div>
-
-                  <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full bg-indigo-500"
-                      style={{ width: `${course.progress}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+        {error && (
+          <Card className="mt-5 flex items-center gap-2 p-5 text-sm text-red-600">
+            <AlertCircle size={16} /> {error}
           </Card>
+        )}
 
-          {/* Schedule */}
-          <Card className="p-6">
-            <div className="mb-6">
-              <h3 className="font-bold text-gray-950">Today&apos;s schedule</h3>
-              <p className="mt-1 text-xs text-gray-400">
-                Tuesday · September 23
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              {schedule.map((item) => (
-                <div
-                  key={item.time}
-                  className={[
-                    "flex gap-4 rounded-xl border p-3.5",
-                    item.active
-                      ? "border-indigo-100 bg-indigo-50"
-                      : "border-transparent bg-gray-50",
-                  ].join(" ")}
-                >
-                  <div className="w-11 pt-0.5 text-xs font-bold text-gray-500">
-                    {item.time}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-gray-800">
-                      {item.title}
-                    </p>
-
-                    <p className="mt-1 text-[11px] text-gray-400">
-                      {item.room} · {item.duration}
+        {loading ? (
+          <Card className="mt-5 flex items-center gap-2 p-8 text-sm text-gray-500">
+            <Loader2 size={16} className="animate-spin" /> Loading dashboard…
+          </Card>
+        ) : (
+          <>
+            {/* Main grid */}
+            <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]">
+              {/* Academic Progress */}
+              <Card className="p-6">
+                <div className="mb-6 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-gray-950">
+                      Academic progress
+                    </h3>
+                    <p className="mt-1 text-xs text-gray-400">
+                      Current semester performance
                     </p>
                   </div>
 
-                  {item.active && (
-                    <span className="self-center rounded-full bg-indigo-600 px-2 py-1 text-[9px] font-bold text-white">
-                      NOW
-                    </span>
+                  <button className="rounded-lg p-2 text-gray-400 hover:bg-gray-50">
+                    <ArrowUpRight size={17} />
+                  </button>
+                </div>
+
+                <div className="space-y-6">
+                  {courses.map((course) => {
+                    const value = attendanceByCourse.get(course.id) ?? 0;
+                    return (
+                      <div key={course.id}>
+                        <div className="mb-2 flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-800">
+                              {course.title}
+                            </p>
+                            <p className="mt-0.5 text-[10px] text-gray-400">
+                              {course.code}
+                            </p>
+                          </div>
+
+                          <span className="text-xs font-bold text-gray-700">
+                            {value}%
+                          </span>
+                        </div>
+
+                        <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                          <div
+                            className="h-full rounded-full bg-indigo-500"
+                            style={{ width: `${value}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {courses.length === 0 && (
+                    <p className="text-sm text-gray-400">
+                      You are not enrolled in any courses yet.
+                    </p>
                   )}
                 </div>
-              ))}
-            </div>
-          </Card>
-        </div>
+              </Card>
 
-        {/* Bottom grid */}
-        <div className="mt-5 grid gap-5 lg:grid-cols-2">
-          <Card className="p-6">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
-                <BrainCircuit size={19} />
-              </div>
+              {/* Schedule */}
+              <Card className="p-6">
+                <div className="mb-6">
+                  <h3 className="font-bold text-gray-950">
+                    Today&apos;s schedule
+                  </h3>
+                  <p className="mt-1 text-xs text-gray-400">{today}</p>
+                </div>
 
-              <div>
-                <h3 className="font-bold text-gray-950">Recommended for you</h3>
-                <p className="text-xs text-gray-400">
-                  Based on your academic activity
-                </p>
-              </div>
-            </div>
+                <div className="space-y-2">
+                  {todayClasses.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex gap-4 rounded-xl border border-transparent bg-gray-50 p-3.5"
+                    >
+                      <div className="w-11 pt-0.5 text-xs font-bold text-gray-500">
+                        {item.startTime}
+                      </div>
 
-            <div className="space-y-2">
-              <Recommendation
-                icon={<BookOpen size={17} />}
-                title="Review Distributed Systems"
-                description="AI predicts this topic will help your next assessment."
-              />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-gray-800">
+                          {item.course?.title ?? "Class"}
+                        </p>
 
-              <Recommendation
-                icon={<FileText size={17} />}
-                title="Complete Neural Network Lab"
-                description="Due in 6 days · estimated 75 minutes."
-              />
-            </div>
-          </Card>
+                        <p className="mt-1 text-[11px] text-gray-400">
+                          {item.room} · {item.startTime}–{item.endTime}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
 
-          <Card className="p-6">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
-                <CalendarDays size={19} />
-              </div>
-
-              <div>
-                <h3 className="font-bold text-gray-950">Quick overview</h3>
-                <p className="text-xs text-gray-400">
-                  Important university updates
-                </p>
-              </div>
+                  {todayClasses.length === 0 && (
+                    <p className="text-sm text-gray-400">
+                      No classes scheduled today.
+                    </p>
+                  )}
+                </div>
+              </Card>
             </div>
 
-            <div className="space-y-3">
-              <Overview
-                title="Mid-Term schedule published"
-                description="Academic Office · 2 hours ago"
-              />
+            {/* Bottom grid */}
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+              <Card className="p-6">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
+                    <BrainCircuit size={19} />
+                  </div>
 
-              <Overview
-                title="FYP proposal submission"
-                description="Department Office · Tomorrow"
-              />
+                  <div>
+                    <h3 className="font-bold text-gray-950">
+                      Recommended for you
+                    </h3>
+                    <p className="text-xs text-gray-400">
+                      Based on your academic activity
+                    </p>
+                  </div>
+                </div>
 
-              <Overview
-                title="Career fair registration open"
-                description="Career Development Center · 2 days ago"
-              />
+                <div className="space-y-2">
+                  {needsAttention.map((item) => (
+                    <Recommendation
+                      key={item.courseId}
+                      icon={<BookOpen size={17} />}
+                      title={item.course.title}
+                      description={`Attendance ${item.percentage}% · below requirement`}
+                    />
+                  ))}
+
+                  {needsAttention.length === 0 && (
+                    <p className="text-sm text-gray-400">
+                      No courses need attention right now.
+                    </p>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
+                    <CalendarDays size={19} />
+                  </div>
+
+                  <div>
+                    <h3 className="font-bold text-gray-950">Quick overview</h3>
+                    <p className="text-xs text-gray-400">
+                      Important university updates
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {announcements.slice(0, 3).map((item) => (
+                    <Overview
+                      key={item.id}
+                      title={item.title}
+                      description={`${item.author?.name ?? "University"} · ${new Date(
+                        item.createdAt
+                      ).toLocaleDateString()}`}
+                    />
+                  ))}
+
+                  {announcements.length === 0 && (
+                    <p className="text-sm text-gray-400">
+                      No announcements yet.
+                    </p>
+                  )}
+                </div>
+              </Card>
             </div>
-          </Card>
-        </div>
+          </>
+        )}
       </div>
     </AppShell>
   );

@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -9,24 +12,104 @@ import {
   Clock3,
   FileText,
   GraduationCap,
+  Loader2,
   MessageSquare,
   UserRound,
 } from "lucide-react";
 
 import AppShell from "@/components/layout/AppShell";
 import Card from "@/components/ui/Card";
-import { courses } from "@/lib/data";
+import {
+  api,
+  ApiError,
+  type CourseDTO,
+  type StudentAttendanceSummaryDTO,
+  type TimetableEntryDTO,
+} from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
 
-export default async function CourseDetails({
-  params,
-}: {
-  params: Promise<{ courseId: string }>;
-}) {
-  const { courseId } = await params;
+type Data = {
+  course: CourseDTO | null;
+  attendance: StudentAttendanceSummaryDTO | null;
+  grade: string | null;
+  marks: number | null;
+  timetable: TimetableEntryDTO[];
+};
 
-  const course = courses.find((item) => item.id === courseId);
+export default function CourseDetails() {
+  const { courseId } = useParams<{ courseId: string }>();
 
-  if (!course) {
+  const { data, loading, error } = useApiResource<Data>(async () => {
+    let course: CourseDTO | null = null;
+    try {
+      course = await api.courses.get(courseId);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        return {
+          course: null,
+          attendance: null,
+          grade: null,
+          marks: null,
+          timetable: [],
+        };
+      }
+      throw e;
+    }
+
+    const [timetable, me] = await Promise.all([
+      api.timetable.me(),
+      api.students.me(),
+    ]);
+
+    const [attendance, results] = await Promise.all([
+      api.attendance.byStudent(me.id, courseId),
+      api.results.byStudent(me.id),
+    ]);
+
+    const result = results.results.find((r) => r.courseId === courseId) ?? null;
+
+    return {
+      course,
+      attendance: attendance[0] ?? null,
+      grade: result?.grade ?? null,
+      marks: result?.marks ?? null,
+      timetable,
+    };
+  });
+
+  if (loading) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-375">
+          <Card className="flex items-center gap-2 p-8 text-sm text-gray-500">
+            <Loader2 size={16} className="animate-spin" /> Loading course…
+          </Card>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppShell>
+        <div className="mx-auto max-w-3xl py-20 text-center">
+          <h1 className="text-2xl font-bold">Something went wrong</h1>
+
+          <p className="mt-3 text-sm text-red-600">{error}</p>
+
+          <Link
+            href="/student/courses"
+            className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-indigo-600"
+          >
+            <ArrowLeft size={15} />
+            Back to courses
+          </Link>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!data?.course) {
     return (
       <AppShell>
         <div className="mx-auto max-w-3xl py-20 text-center">
@@ -43,6 +126,18 @@ export default async function CourseDetails({
       </AppShell>
     );
   }
+
+  const course = data.course;
+  const attendance = data.attendance;
+  const slot =
+    data.timetable.find((entry) => entry.courseId === courseId) ?? null;
+  const courseSlots = data.timetable.filter(
+    (entry) => entry.courseId === courseId
+  );
+  const instructor = course.teacher?.name ?? "Unassigned";
+  const scheduleText = slot
+    ? `${slot.day} · ${slot.startTime}–${slot.endTime}`
+    : "No scheduled slot";
 
   return (
     <AppShell>
@@ -64,20 +159,18 @@ export default async function CourseDetails({
               </div>
 
               <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                {course.name}
+                {course.title}
               </h1>
 
-              <p className="mt-3 text-sm text-indigo-100">
-                {course.instructor}
-              </p>
+              <p className="mt-3 text-sm text-indigo-100">{instructor}</p>
 
               <div className="mt-5 flex flex-wrap gap-2">
                 <Tag
                   icon={<BookOpen size={13} />}
-                  text={`${course.credits} Credits`}
+                  text={`${course.creditHours} Credits`}
                 />
-                <Tag icon={<UserRound size={13} />} text={course.instructor} />
-                <Tag icon={<CalendarDays size={13} />} text={course.schedule} />
+                <Tag icon={<UserRound size={13} />} text={instructor} />
+                <Tag icon={<CalendarDays size={13} />} text={scheduleText} />
               </div>
             </div>
 
@@ -85,15 +178,17 @@ export default async function CourseDetails({
               <p className="text-xs text-indigo-200">Current Grade</p>
 
               <div className="mt-2 flex items-center gap-3">
-                <span className="text-4xl font-bold">{course.grade}</span>
+                <span className="text-4xl font-bold">{data.grade ?? "—"}</span>
 
                 <span className="text-xs font-semibold text-emerald-300">
-                  Excellent
+                  {data.marks !== null ? `${data.marks}/100` : "—"}
                 </span>
               </div>
 
               <p className="mt-4 text-xs text-indigo-200">
-                {course.progress}% course progress
+                {attendance
+                  ? `${attendance.percentage}% attendance`
+                  : "No attendance recorded"}
               </p>
             </div>
           </div>
@@ -104,29 +199,35 @@ export default async function CourseDetails({
           <Metric
             icon={<ClipboardCheck size={18} />}
             label="Attendance"
-            value={`${course.attendance}%`}
-            description="Above requirement"
+            value={attendance ? `${attendance.percentage}%` : "—"}
+            description={
+              attendance
+                ? attendance.belowThreshold
+                  ? "Below requirement"
+                  : "Above requirement"
+                : "No attendance yet"
+            }
+          />
+
+          <Metric
+            icon={<CheckCircle2 size={18} />}
+            label="Classes Present"
+            value={attendance ? `${attendance.present} / ${attendance.total}` : "—"}
+            description="Recorded sessions"
           />
 
           <Metric
             icon={<BookOpen size={18} />}
-            label="Progress"
-            value={`${course.progress}%`}
-            description="Course completed"
-          />
-
-          <Metric
-            icon={<FileText size={18} />}
-            label="Assignments"
-            value="8 / 10"
-            description="2 remaining"
+            label="Credits"
+            value={String(course.creditHours)}
+            description="Credit hours"
           />
 
           <Metric
             icon={<Clock3 size={18} />}
             label="Next Class"
-            value="09:00"
-            description="Monday · Lab 3"
+            value={slot ? slot.startTime : "—"}
+            description={slot ? `${slot.day} · ${slot.room}` : "No scheduled slot"}
           />
         </div>
 
@@ -136,7 +237,7 @@ export default async function CourseDetails({
               <div>
                 <h2 className="font-bold text-gray-950">Course progress</h2>
                 <p className="mt-1 text-xs text-gray-400">
-                  Your learning journey this semester
+                  Your attendance record this semester
                 </p>
               </div>
 
@@ -145,52 +246,41 @@ export default async function CourseDetails({
 
             <div className="space-y-6">
               <ProgressItem
-                title="Module 01 · Architecture Fundamentals"
-                value={100}
+                title="Attendance"
+                value={attendance?.percentage ?? 0}
               />
 
-              <ProgressItem title="Module 02 · Design Patterns" value={100} />
-
-              <ProgressItem
-                title="Module 03 · Distributed Systems"
-                value={85}
-              />
-
-              <ProgressItem title="Module 04 · Cloud Architecture" value={70} />
-
-              <ProgressItem
-                title="Module 05 · Final Architecture Project"
-                value={40}
-              />
+              <p className="text-xs text-gray-400">
+                {attendance
+                  ? `${attendance.present} of ${attendance.total} classes attended.`
+                  : "No attendance has been recorded for this course yet."}
+              </p>
             </div>
           </Card>
 
           <Card className="p-6">
             <div className="mb-5">
-              <h2 className="font-bold text-gray-950">Upcoming work</h2>
+              <h2 className="font-bold text-gray-950">Scheduled sessions</h2>
               <p className="mt-1 text-xs text-gray-400">
-                Your next course activities
+                Your weekly classes for this course
               </p>
             </div>
 
             <div className="space-y-2">
-              <Activity
-                title="Distributed Systems Report"
-                date="Due Sep 27"
-                icon={<FileText size={16} />}
-              />
+              {courseSlots.map((item) => (
+                <Activity
+                  key={item.id}
+                  title={item.course?.title ?? course.title}
+                  date={`${item.day} · ${item.startTime}–${item.endTime} · ${item.room}`}
+                  icon={<CalendarDays size={16} />}
+                />
+              ))}
 
-              <Activity
-                title="Architecture Quiz"
-                date="Sep 29 · 10:00 AM"
-                icon={<ClipboardCheck size={16} />}
-              />
-
-              <Activity
-                title="Final Project Review"
-                date="Oct 03 · Lab 3"
-                icon={<MessageSquare size={16} />}
-              />
+              {courseSlots.length === 0 && (
+                <p className="text-xs text-gray-400">
+                  No scheduled sessions for this course.
+                </p>
+              )}
             </div>
           </Card>
         </div>
@@ -200,10 +290,10 @@ export default async function CourseDetails({
             <h2 className="font-bold text-gray-950">Course information</h2>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <Detail label="Instructor" value={course.instructor} />
-              <Detail label="Credits" value={`${course.credits} credits`} />
-              <Detail label="Classroom" value={course.room} />
-              <Detail label="Schedule" value={course.schedule} />
+              <Detail label="Instructor" value={instructor} />
+              <Detail label="Credits" value={`${course.creditHours} credits`} />
+              <Detail label="Classroom" value={slot?.room ?? "—"} />
+              <Detail label="Schedule" value={scheduleText} />
             </div>
           </Card>
 

@@ -22,6 +22,7 @@ import {
   MapPin,
 } from "lucide-react";
 import Card from "@/components/ui/Card";
+import ChangePasswordModal from "@/components/ChangePasswordModal";
 
 type ToggleProps = {
   enabled: boolean;
@@ -72,6 +73,7 @@ const sessions = [
 
 export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
 
   const [settings, setSettings] = useState({
     emailNotifications: true,
@@ -479,7 +481,11 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <button className="mt-4 flex w-full items-center justify-between rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setChangeOpen(true)}
+                className="mt-4 flex w-full items-center justify-between rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+              >
                 <span>Change password</span>
                 <ChevronRight size={16} className="text-gray-400" />
               </button>
@@ -623,6 +629,10 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {changeOpen && (
+        <ChangePasswordModal onClose={() => setChangeOpen(false)} />
+      )}
     </div>
   );
 }
