@@ -4,3 +4,6 @@ node_modules/
 # Local env files
 .env
 .env.local
+
+# Temporary local seed script (never commit)
+client/scripts/seed-admin.js
