@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
-import { Course, Enrollment, Timetable, Attendance, Result, Teacher, User } from "@/lib/models";
+import { Course, Enrollment, Timetable, Attendance, Result, Teacher, User, Department } from "@/lib/models";
 import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse, conflictResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { z } from "zod";
 import mongoose, { Types } from "mongoose";
@@ -12,10 +12,78 @@ const updateCourseSchema = z
     code: z.string().trim().min(1).max(20).optional(),
     title: z.string().trim().min(2).max(200).optional(),
     teacherId: z.string().regex(objectIdRegex).nullable().optional(),
+    departmentId: z.string().regex(objectIdRegex).nullable().optional(),
     semester: z.number().int().min(1).max(12).optional(),
     creditHours: z.number().int().min(1).max(6).optional(),
   })
   .strict();
+
+const coursePopulate = [
+  { path: "teacherId", populate: { path: "userId", select: "name email" } },
+  { path: "departmentId", select: "name code" },
+];
+
+interface LeanUser {
+  name?: string;
+  email?: string;
+}
+
+interface LeanTeacher {
+  _id: Types.ObjectId;
+  department?: string;
+  designation?: string;
+  userId: LeanUser | null;
+}
+
+interface LeanDepartment {
+  _id: Types.ObjectId;
+  name: string;
+  code: string;
+}
+
+interface LeanCourse {
+  _id: Types.ObjectId;
+  code: string;
+  title: string;
+  semester: number;
+  creditHours: number;
+  teacherId: LeanTeacher | null;
+  departmentId: LeanDepartment | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function toCourseDTO(course: LeanCourse) {
+  const teacher = course.teacherId && course.teacherId.userId
+    ? {
+        id: course.teacherId._id.toString(),
+        name: course.teacherId.userId.name,
+        email: course.teacherId.userId.email,
+        department: course.teacherId.department,
+        designation: course.teacherId.designation ?? null,
+      }
+    : null;
+
+  const department = course.departmentId
+    ? {
+        id: course.departmentId._id.toString(),
+        name: course.departmentId.name,
+        code: course.departmentId.code,
+      }
+    : null;
+
+  return {
+    id: course._id.toString(),
+    code: course.code,
+    title: course.title,
+    semester: course.semester,
+    creditHours: course.creditHours,
+    teacher,
+    department,
+    createdAt: course.createdAt,
+    updatedAt: course.updatedAt,
+  };
+}
 
 export async function GET(
   _req: Request,
@@ -31,43 +99,12 @@ export async function GET(
     await dbConnect();
 
     const course = (await Course.findById(id)
-      .populate({
-        path: "teacherId",
-        populate: { path: "userId", select: "name email" },
-      })
-      .lean()) as unknown as {
-      _id: Types.ObjectId;
-      code: string;
-      title: string;
-      semester: number;
-      creditHours: number;
-      teacherId: { _id: Types.ObjectId; department?: string; designation?: string; userId: { name?: string; email?: string } | null } | null;
-      createdAt: Date;
-      updatedAt: Date;
-    } | null;
+      .populate(coursePopulate)
+      .lean()) as unknown as LeanCourse | null;
 
     if (!course) return notFoundResponse("Course not found");
 
-    const teacher = course.teacherId && course.teacherId.userId
-      ? {
-          id: course.teacherId._id.toString(),
-          name: course.teacherId.userId.name,
-          email: course.teacherId.userId.email,
-          department: course.teacherId.department,
-          designation: course.teacherId.designation ?? null,
-        }
-      : null;
-
-    return successResponse({
-      id: course._id.toString(),
-      code: course.code,
-      title: course.title,
-      semester: course.semester,
-      creditHours: course.creditHours,
-      teacher,
-      createdAt: course.createdAt,
-      updatedAt: course.updatedAt,
-    });
+    return successResponse(toCourseDTO(course));
   } catch (error) {
     console.error("GET /api/courses/:id error:", error);
     return serverErrorResponse();
@@ -112,46 +149,21 @@ export async function PUT(
       updateData.teacherId = parsed.data.teacherId;
     }
 
+    if (parsed.data.departmentId !== undefined && parsed.data.departmentId !== null) {
+      const department = (await Department.findById(parsed.data.departmentId).lean()) as unknown as { _id: Types.ObjectId } | null;
+      if (!department) return notFoundResponse("Department not found");
+      updateData.departmentId = parsed.data.departmentId;
+    }
+
     await Course.findByIdAndUpdate(id, updateData, { new: true });
 
     const course = (await Course.findById(id)
-      .populate({
-        path: "teacherId",
-        populate: { path: "userId", select: "name email" },
-      })
-      .lean()) as unknown as {
-      _id: Types.ObjectId;
-      code: string;
-      title: string;
-      semester: number;
-      creditHours: number;
-      teacherId: { _id: Types.ObjectId; department?: string; designation?: string; userId: { name?: string; email?: string } | null } | null;
-      createdAt: Date;
-      updatedAt: Date;
-    } | null;
+      .populate(coursePopulate)
+      .lean()) as unknown as LeanCourse | null;
 
     if (!course) return notFoundResponse("Course not found");
 
-    const teacher = course.teacherId && course.teacherId.userId
-      ? {
-          id: course.teacherId._id.toString(),
-          name: course.teacherId.userId.name,
-          email: course.teacherId.userId.email,
-          department: course.teacherId.department,
-          designation: course.teacherId.designation ?? null,
-        }
-      : null;
-
-    return successResponse({
-      id: course._id.toString(),
-      code: course.code,
-      title: course.title,
-      semester: course.semester,
-      creditHours: course.creditHours,
-      teacher,
-      createdAt: course.createdAt,
-      updatedAt: course.updatedAt,
-    });
+    return successResponse(toCourseDTO(course));
   } catch (error) {
     if (typeof error === "object" && error !== null && (error as { code?: number }).code === 11000) {
       return conflictResponse("Course code already exists");

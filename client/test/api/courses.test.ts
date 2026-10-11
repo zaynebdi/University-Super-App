@@ -27,6 +27,9 @@ vi.mock("@/lib/models", () => ({
     findById: vi.fn(),
     findOne: vi.fn(),
   },
+  Department: {
+    findById: vi.fn(),
+  },
   Student: {
     findById: vi.fn(),
   },
@@ -54,7 +57,7 @@ import { POST as enrollStudent } from "@/app/api/courses/[id]/enroll/route";
 import { GET as getCourseStudents } from "@/app/api/courses/[id]/students/route";
 import { auth } from "@/lib/auth-server";
 import mongoose from "mongoose";
-import { Course, Enrollment, Teacher, Student, User, Timetable, Attendance, Result } from "@/lib/models";
+import { Course, Enrollment, Teacher, Department, Student, User, Timetable, Attendance, Result } from "@/lib/models";
 
 const mockAuth = vi.mocked(auth) as unknown as {
   mockResolvedValue: (value: unknown) => void;
@@ -62,6 +65,7 @@ const mockAuth = vi.mocked(auth) as unknown as {
 const mockCourse = vi.mocked(Course);
 const mockEnrollment = vi.mocked(Enrollment);
 const mockTeacher = vi.mocked(Teacher);
+const mockDepartment = vi.mocked(Department);
 const mockStudent = vi.mocked(Student);
 const mockUser = vi.mocked(User);
 const mockTimetable = vi.mocked(Timetable);
@@ -76,6 +80,7 @@ const ENROLL_ID = "888888888888888888888888";
 const STUDENT_ID = "444444444444444444444444";
 const USER_SELF = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const USER_OTHER = "bbbbbbbbbbbbbbbbbbbbbbbb";
+const DEPARTMENT_ID = "777777777777777777777777";
 
 function createMockRequest(url: string, method = "GET", body?: unknown): Request {
   return new Request(url, { method, body: body ? JSON.stringify(body) : undefined });
@@ -185,6 +190,20 @@ describe("Courses API", () => {
       expect(mockCourse.find).toHaveBeenCalledWith({ teacherId: TEACHER_ID });
     });
 
+    it("filters by departmentId", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      mockCourse.find.mockReturnValue(chainPopulate([]));
+
+      await getCourses(createMockRequest(`http://localhost/api/courses?departmentId=${DEPARTMENT_ID}`));
+      expect(mockCourse.find).toHaveBeenCalledWith({ departmentId: DEPARTMENT_ID });
+    });
+
+    it("returns 400 for an invalid departmentId query", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      const res = await getCourses(createMockRequest("http://localhost/api/courses?departmentId=nope"));
+      expect(res.status).toBe(400);
+    });
+
     it("returns 500 on database error", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "student" } });
       mockCourse.find.mockImplementation(() => {
@@ -255,6 +274,44 @@ describe("Courses API", () => {
         })
       );
       expect(res.status).toBe(409);
+    });
+
+    it("returns 404 when the department does not exist", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      mockDepartment.findById.mockReturnValue(lean(null));
+
+      const res = await createCourse(
+        createMockRequest("http://localhost/api/courses", "POST", {
+          code: "CS101",
+          title: "Intro to CS",
+          semester: 1,
+          creditHours: 3,
+          departmentId: DEPARTMENT_ID,
+        })
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("creates a course with a department", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      mockDepartment.findById.mockReturnValue(lean({ _id: DEPARTMENT_ID }));
+      mockCourse.findOne.mockReturnValue(chainCollation(null));
+      mockCourse.create.mockResolvedValue({ _id: COURSE_ID } as any);
+      mockCourse.findById.mockReturnValue(chainLean(courseLean()));
+
+      const res = await createCourse(
+        createMockRequest("http://localhost/api/courses", "POST", {
+          code: "CS101",
+          title: "Intro to CS",
+          semester: 1,
+          creditHours: 3,
+          departmentId: DEPARTMENT_ID,
+        })
+      );
+      expect(res.status).toBe(201);
+      expect(mockCourse.create).toHaveBeenCalledWith(
+        expect.objectContaining({ departmentId: DEPARTMENT_ID })
+      );
     });
 
     it("returns 409 when code already exists (case-insensitive)", async () => {
@@ -469,6 +526,42 @@ describe("Courses API", () => {
       const data = await res.json();
       expect(data.data.teacher).toBe(null);
       expect(mockCourse.findByIdAndUpdate).toHaveBeenCalledWith(COURSE_ID, { teacherId: null }, { new: true });
+    });
+
+    it("returns 404 when reassigning to a missing department", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      mockCourse.findById.mockReturnValue(chainLean(courseLean()));
+      mockDepartment.findById.mockReturnValue(lean(null));
+
+      const res = await updateCourse(
+        createMockRequest("http://localhost/api/courses/" + COURSE_ID, "PUT", { departmentId: DEPARTMENT_ID }),
+        { params: Promise.resolve({ id: COURSE_ID }) }
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("updates the department of a course", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
+      mockCourse.findById.mockReturnValue(
+        chainLean(
+          courseLean({
+            departmentId: { _id: DEPARTMENT_ID, name: "Computer Science", code: "CS" },
+          })
+        )
+      );
+      mockDepartment.findById.mockReturnValue(lean({ _id: DEPARTMENT_ID }));
+      mockCourse.findByIdAndUpdate.mockResolvedValue({});
+
+      const res = await updateCourse(
+        createMockRequest("http://localhost/api/courses/" + COURSE_ID, "PUT", { departmentId: DEPARTMENT_ID }),
+        { params: Promise.resolve({ id: COURSE_ID }) }
+      );
+      expect(res.status).toBe(200);
+      expect(mockCourse.findByIdAndUpdate).toHaveBeenCalledWith(
+        COURSE_ID,
+        { departmentId: DEPARTMENT_ID },
+        { new: true }
+      );
     });
 
     it("returns 500 on database error", async () => {

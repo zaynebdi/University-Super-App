@@ -30,6 +30,30 @@ export const GradePoints: Record<string, number> = {
 
 export const MIN_ATTENDANCE_PERCENTAGE = 75;
 
+export const Designations = [
+  "Lecturer",
+  "Assistant Professor",
+  "Associate Professor",
+  "Professor",
+  "HOD",
+  "Dean",
+  "Lab Instructor",
+  "Visiting Faculty",
+] as const;
+
+export type Designation = (typeof Designations)[number];
+
+export const DesignationLabels: Record<Designation, string> = {
+  Lecturer: "Lecturer",
+  "Assistant Professor": "Assistant Professor",
+  "Associate Professor": "Associate Professor",
+  Professor: "Professor",
+  HOD: "HOD (Head of Department)",
+  Dean: "Dean",
+  "Lab Instructor": "Lab Instructor",
+  "Visiting Faculty": "Visiting Faculty",
+};
+
 export const DaysOfWeek = [
   "Monday",
   "Tuesday",

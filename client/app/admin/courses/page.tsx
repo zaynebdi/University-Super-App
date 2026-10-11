@@ -9,6 +9,7 @@ import {
   ApiError,
   type CourseDTO,
   type TeacherProfileDTO,
+  type DepartmentDTO,
 } from "@/lib/api-client";
 import { useApiResource } from "@/lib/use-api-resource";
 import {
@@ -24,17 +25,22 @@ export default function AdminCoursesPage() {
   const { data, loading, error, reload } = useApiResource<{
     courses: CourseDTO[];
     teachers: TeacherProfileDTO[];
+    departments: DepartmentDTO[];
   }>(async () => {
-    const [courses, teachers] = await Promise.all([
+    const [courses, teachers, departments] = await Promise.all([
       api.courses.list(),
       api.teachers.list(),
+      api.departments.list(),
     ]);
-    return { courses, teachers };
+    return { courses, teachers, departments };
   });
 
   const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<CourseDTO | null>(null);
+
+  const activeDepartments =
+    data?.departments.filter((d) => d.isActive !== false) ?? [];
 
   async function handleDelete(course: CourseDTO) {
     if (
@@ -57,7 +63,7 @@ export default function AdminCoursesPage() {
     <div className="mx-auto max-w-375">
       <PageHeader
         title="Courses"
-        description="Create courses, assign teachers and manage enrollments."
+        description="Create courses, assign teachers, departments and manage enrollments."
         action={
           <button
             onClick={() => setCreating(true)}
@@ -79,24 +85,26 @@ export default function AdminCoursesPage() {
       ) : error ? (
         <ErrorBox message={error} />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           {data?.courses.map((course) => (
             <div
               key={course.id}
               className="rounded-2xl border border-gray-200 bg-white p-5"
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-xs font-semibold text-indigo-600">
-                    {course.code}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-indigo-600">
+                      {course.code}
+                    </span>
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-500">
+                      {course.department?.name ?? "Unassigned"}
+                    </span>
                   </div>
-                  <h3 className="mt-1 font-bold text-gray-950">
+                  <h2 className="mt-1 text-lg font-bold text-gray-950">
                     {course.title}
-                  </h3>
+                  </h2>
                 </div>
-                <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-500">
-                  Sem {course.semester}
-                </span>
               </div>
 
               <p className="mt-3 text-sm text-gray-500">
@@ -139,6 +147,7 @@ export default function AdminCoursesPage() {
       {creating && (
         <CourseFormModal
           teachers={data?.teachers ?? []}
+          departments={activeDepartments}
           onClose={() => setCreating(false)}
           onSaved={async () => {
             setCreating(false);
@@ -151,6 +160,7 @@ export default function AdminCoursesPage() {
       {editing && (
         <CourseFormModal
           teachers={data?.teachers ?? []}
+          departments={activeDepartments}
           course={editing}
           onClose={() => setEditing(null)}
           onSaved={async () => {
@@ -166,11 +176,13 @@ export default function AdminCoursesPage() {
 
 function CourseFormModal({
   teachers,
+  departments,
   course,
   onClose,
   onSaved,
 }: {
   teachers: TeacherProfileDTO[];
+  departments: DepartmentDTO[];
   course?: CourseDTO;
   onClose: () => void;
   onSaved: () => void;
@@ -179,6 +191,7 @@ function CourseFormModal({
     code: course?.code ?? "",
     title: course?.title ?? "",
     teacherId: course?.teacher?.id ?? "",
+    departmentId: course?.department?.id ?? "",
     semester: course?.semester ?? 1,
     creditHours: course?.creditHours ?? 3,
   });
@@ -194,6 +207,7 @@ function CourseFormModal({
         code: form.code,
         title: form.title,
         teacherId: form.teacherId || null,
+        departmentId: form.departmentId || null,
         semester: Number(form.semester),
         creditHours: Number(form.creditHours),
       };
@@ -229,6 +243,20 @@ function CourseFormModal({
             className="form-input"
           />
         </Field>
+        <Field label="Department">
+          <select
+            value={form.departmentId}
+            onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+            className="form-input"
+          >
+            <option value="">Unassigned</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.code} · {d.name}
+              </option>
+            ))}
+          </select>
+        </Field>
         <Field label="Teacher">
           <select
             value={form.teacherId}
@@ -238,7 +266,7 @@ function CourseFormModal({
             <option value="">Unassigned</option>
             {teachers.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name} ({t.department})
+                {t.name} ({t.department || "Unassigned"})
               </option>
             ))}
           </select>

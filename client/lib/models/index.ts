@@ -2,6 +2,8 @@ export { User, type IUser } from "./User";
 export { Student, type IStudent } from "./Student";
 export { Teacher, type ITeacher } from "./Teacher";
 export { Course, type ICourse } from "./Course";
+export { Department, type IDepartment } from "./Department";
+export { RollNumberCounter, type IRollNumberCounter } from "./RollNumberCounter";
 export { Enrollment, type IEnrollment } from "./Enrollment";
 export { Timetable, type ITimetable } from "./Timetable";
 export { Announcement, type IAnnouncement } from "./Announcement";

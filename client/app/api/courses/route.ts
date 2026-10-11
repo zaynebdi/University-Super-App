@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
-import { Course, Teacher, User } from "@/lib/models";
+import { Course, Teacher, User, Department } from "@/lib/models";
 import { successResponse, createdResponse, errorResponse, unauthorizedResponse, forbiddenResponse, conflictResponse, serverErrorResponse } from "@/lib/api/response";
 import { z } from "zod";
 import { Types } from "mongoose";
@@ -12,6 +12,7 @@ const createCourseSchema = z
     code: z.string().trim().min(1).max(20),
     title: z.string().trim().min(2).max(200),
     teacherId: z.string().regex(objectIdRegex).nullable().optional(),
+    departmentId: z.string().regex(objectIdRegex).nullable().optional(),
     semester: z.number().int().min(1).max(12),
     creditHours: z.number().int().min(1).max(6),
   })
@@ -20,12 +21,13 @@ const createCourseSchema = z
 const listQuerySchema = z.object({
   semester: z.coerce.number().int().min(1).max(12).optional(),
   teacherId: z.string().regex(objectIdRegex).optional(),
+  departmentId: z.string().regex(objectIdRegex).optional(),
 });
 
-const teacherPopulate = {
-  path: "teacherId",
-  populate: { path: "userId", select: "name email" },
-};
+const coursePopulate = [
+  { path: "teacherId", populate: { path: "userId", select: "name email" } },
+  { path: "departmentId", select: "name code" },
+];
 
 interface LeanUser {
   name?: string;
@@ -39,6 +41,12 @@ interface LeanTeacher {
   userId: LeanUser | null;
 }
 
+interface LeanDepartment {
+  _id: Types.ObjectId;
+  name: string;
+  code: string;
+}
+
 interface LeanCourse {
   _id: Types.ObjectId;
   code: string;
@@ -46,6 +54,7 @@ interface LeanCourse {
   semester: number;
   creditHours: number;
   teacherId: LeanTeacher | null;
+  departmentId: LeanDepartment | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -61,6 +70,14 @@ function toCourseDTO(course: LeanCourse) {
       }
     : null;
 
+  const department = course.departmentId
+    ? {
+        id: course.departmentId._id.toString(),
+        name: course.departmentId.name,
+        code: course.departmentId.code,
+      }
+    : null;
+
   return {
     id: course._id.toString(),
     code: course.code,
@@ -68,6 +85,7 @@ function toCourseDTO(course: LeanCourse) {
     semester: course.semester,
     creditHours: course.creditHours,
     teacher,
+    department,
     createdAt: course.createdAt,
     updatedAt: course.updatedAt,
   };
@@ -80,8 +98,9 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const parsed = listQuerySchema.safeParse({
-      semester: searchParams.get("semester") || undefined,
-      teacherId: searchParams.get("teacherId") || undefined,
+      semester: searchParams.get("semester") ?? undefined,
+      teacherId: searchParams.get("teacherId") ?? undefined,
+      departmentId: searchParams.get("departmentId") ?? undefined,
     });
     if (!parsed.success) return errorResponse("Invalid query", 400);
 
@@ -90,9 +109,10 @@ export async function GET(req: Request) {
     const filter: Record<string, unknown> = {};
     if (parsed.data.semester !== undefined) filter.semester = parsed.data.semester;
     if (parsed.data.teacherId !== undefined) filter.teacherId = parsed.data.teacherId;
+    if (parsed.data.departmentId !== undefined) filter.departmentId = parsed.data.departmentId;
 
     const courses = (await Course.find(filter)
-      .populate(teacherPopulate)
+      .populate(coursePopulate)
       .lean()) as unknown as LeanCourse[];
 
     return successResponse(courses.map(toCourseDTO));
@@ -122,6 +142,12 @@ export async function POST(req: Request) {
       if (!teacherUser || !teacherUser.isActive) return conflictResponse("Teacher is inactive");
     }
 
+    const departmentId = parsed.data.departmentId ?? null;
+    if (departmentId) {
+      const department = (await Department.findById(departmentId).lean()) as unknown as { _id: Types.ObjectId } | null;
+      if (!department) return errorResponse("Department not found", 404);
+    }
+
     const existing = await Course.findOne({ code: parsed.data.code })
       .collation({ locale: "en", strength: 2 })
       .lean();
@@ -131,12 +157,13 @@ export async function POST(req: Request) {
       code: parsed.data.code,
       title: parsed.data.title,
       teacherId: parsed.data.teacherId ?? null,
+      departmentId: parsed.data.departmentId ?? null,
       semester: parsed.data.semester,
       creditHours: parsed.data.creditHours,
     });
 
     const course = (await Course.findById(created._id)
-      .populate(teacherPopulate)
+      .populate(coursePopulate)
       .lean()) as unknown as LeanCourse;
 
     return createdResponse(toCourseDTO(course));

@@ -13,12 +13,19 @@ vi.mock("@/lib/models", () => ({
     findOne: vi.fn(),
     create: vi.fn(),
   },
+  Department: {
+    findById: vi.fn(),
+  },
   Student: {
     findOne: vi.fn(),
     create: vi.fn(),
   },
   Teacher: {
     create: vi.fn(),
+  },
+  Course: {
+    find: vi.fn(),
+    updateMany: vi.fn(),
   },
 }));
 
@@ -29,15 +36,17 @@ vi.mock("@/lib/models", () => ({
 import bcrypt from "bcryptjs";
 import { POST as register } from "@/app/api/auth/register/route";
 import { auth } from "@/lib/auth-server";
-import { User } from "@/lib/models";
+import { User, Department } from "@/lib/models";
 
 const mockAuth = vi.mocked(auth) as unknown as {
   mockResolvedValue: (value: unknown) => void;
 };
 const mockUser = vi.mocked(User);
+const mockDepartment = vi.mocked(Department);
 const mockCreate = mockUser.create as unknown as ReturnType<typeof vi.fn>;
 
 const ADMIN = "aaaaaaaaaaaaaaaaaaaaaaaa";
+const DEPARTMENT_ID = "dddddddddddddddddddddddd";
 
 function adminRequest(body: unknown): Request {
   return new Request("http://localhost/api/auth/register", {
@@ -54,6 +63,14 @@ describe("register -> login password integrity", () => {
   it("stores a password that verifies with the same password at login", async () => {
     mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
     mockUser.findOne.mockResolvedValue(null);
+    mockDepartment.findById.mockReturnValue({
+      lean: vi.fn().mockResolvedValue({
+        _id: DEPARTMENT_ID,
+        name: "Computer Science",
+        code: "CS",
+        isActive: true,
+      }),
+    } as any);
 
     const plaintext = "Sup3rSecret!";
     const body = {
@@ -61,7 +78,7 @@ describe("register -> login password integrity", () => {
       email: "teachero@example.com",
       password: plaintext,
       role: "teacher",
-      department: "Computer Science",
+      departmentId: DEPARTMENT_ID,
       designation: "Lecturer",
     };
 

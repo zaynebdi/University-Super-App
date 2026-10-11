@@ -1,9 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Pencil, Ban } from "lucide-react";
 
-import { api, ApiError, type UserDTO } from "@/lib/api-client";
+import {
+  api,
+  ApiError,
+  type UserDTO,
+  type CourseDTO,
+  type DepartmentDTO,
+} from "@/lib/api-client";
+import { Designations, DesignationLabels } from "@/lib/constants";
 import { useApiResource } from "@/lib/use-api-resource";
 import {
   ErrorBox,
@@ -14,14 +21,24 @@ import {
 } from "@/components/admin/ui";
 
 export default function AdminUsersPage() {
-  const { data, loading, error, reload } = useApiResource<UserDTO[]>(() =>
-    api.users.list()
-  );
+  const { data, loading, error, reload } = useApiResource<{
+    users: UserDTO[];
+    departments: DepartmentDTO[];
+  }>(async () => {
+    const [users, departments] = await Promise.all([
+      api.users.list(),
+      api.departments.list(),
+    ]);
+    return { users, departments };
+  });
 
   const [notice, setNotice] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<UserDTO | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const activeDepartments =
+    data?.departments.filter((d) => d.isActive !== false) ?? [];
 
   async function handleDeactivate(user: UserDTO) {
     if (!confirm(`Deactivate ${user.name}?`)) return;
@@ -80,7 +97,7 @@ export default function AdminUsersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {data?.map((user) => (
+              {data?.users.map((user) => (
                 <tr key={user.id} className="hover:bg-gray-50/60">
                   <td className="px-5 py-3 font-medium text-gray-800">
                     {user.name}
@@ -122,7 +139,7 @@ export default function AdminUsersPage() {
                   </td>
                 </tr>
               ))}
-              {data?.length === 0 && (
+              {data?.users.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-5 py-8 text-center text-gray-400">
                     No users found.
@@ -136,10 +153,13 @@ export default function AdminUsersPage() {
 
       {showCreate && (
         <CreateUserModal
+          departments={activeDepartments}
           onClose={() => setShowCreate(false)}
-          onCreated={async (name) => {
+          onCreated={async (name, rollNo) => {
             setShowCreate(false);
-            setNotice(`${name} created.`);
+            setNotice(
+              rollNo ? `${name} created. Roll number: ${rollNo}` : `${name} created.`
+            );
             await reload();
           }}
         />
@@ -161,24 +181,60 @@ export default function AdminUsersPage() {
 }
 
 function CreateUserModal({
+  departments,
   onClose,
   onCreated,
 }: {
+  departments: DepartmentDTO[];
   onClose: () => void;
-  onCreated: (name: string) => void;
+  onCreated: (name: string, rollNo?: string) => void;
 }) {
   const [form, setForm] = useState({
     name: "",
     email: "",
     password: "",
     role: "student" as "student" | "teacher",
-    rollNo: "",
-    department: "",
+    departmentId: "",
     semester: 1,
     designation: "",
+    courseIds: [] as string[],
   });
+  const [courses, setCourses] = useState<CourseDTO[]>([]);
+  const [coursesLoading, setCoursesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (form.role !== "teacher" || !form.departmentId) {
+      setCourses([]);
+      return;
+    }
+    let cancelled = false;
+    setCoursesLoading(true);
+    api.courses
+      .list({ departmentId: form.departmentId })
+      .then((cs) => {
+        if (!cancelled) setCourses(cs);
+      })
+      .catch(() => {
+        if (!cancelled) setCourses([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCoursesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.role, form.departmentId]);
+
+  function toggleCourse(courseId: string) {
+    setForm((prev) => ({
+      ...prev,
+      courseIds: prev.courseIds.includes(courseId)
+        ? prev.courseIds.filter((id) => id !== courseId)
+        : [...prev.courseIds, courseId],
+    }));
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -192,8 +248,7 @@ function CreateUserModal({
               email: form.email,
               password: form.password,
               role: "student" as const,
-              rollNo: form.rollNo,
-              department: form.department,
+              departmentId: form.departmentId,
               semester: Number(form.semester),
             }
           : {
@@ -201,11 +256,12 @@ function CreateUserModal({
               email: form.email,
               password: form.password,
               role: "teacher" as const,
-              department: form.department,
+              departmentId: form.departmentId,
               designation: form.designation || undefined,
+              courseIds: form.courseIds.length > 0 ? form.courseIds : undefined,
             };
-      await api.auth.register(input);
-      onCreated(form.name);
+      const created = await api.auth.register(input);
+      onCreated(form.name, created.rollNo);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to create user");
     } finally {
@@ -247,7 +303,11 @@ function CreateUserModal({
           <select
             value={form.role}
             onChange={(e) =>
-              setForm({ ...form, role: e.target.value as "student" | "teacher" })
+              setForm({
+                ...form,
+                role: e.target.value as "student" | "teacher",
+                courseIds: [],
+              })
             }
             className="form-input"
           >
@@ -255,26 +315,28 @@ function CreateUserModal({
             <option value="teacher">Teacher</option>
           </select>
         </Field>
+        <Field label="Department">
+          <select
+            required
+            value={form.departmentId}
+            onChange={(e) =>
+              setForm({ ...form, departmentId: e.target.value, courseIds: [] })
+            }
+            className="form-input"
+          >
+            <option value="">Select a department…</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.code} · {d.name}
+              </option>
+            ))}
+          </select>
+        </Field>
         {form.role === "student" && (
           <>
-            <Field label="Roll number">
-              <input
-                required
-                value={form.rollNo}
-                onChange={(e) => setForm({ ...form, rollNo: e.target.value })}
-                className="form-input"
-              />
-            </Field>
-            <Field label="Department">
-              <input
-                required
-                value={form.department}
-                onChange={(e) =>
-                  setForm({ ...form, department: e.target.value })
-                }
-                className="form-input"
-              />
-            </Field>
+            <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              Roll number is generated automatically based on the department.
+            </p>
             <Field label="Semester">
               <input
                 type="number"
@@ -292,24 +354,48 @@ function CreateUserModal({
         )}
         {form.role === "teacher" && (
           <>
-            <Field label="Department">
-              <input
-                required
-                value={form.department}
-                onChange={(e) =>
-                  setForm({ ...form, department: e.target.value })
-                }
-                className="form-input"
-              />
-            </Field>
             <Field label="Designation">
-              <input
+              <select
                 value={form.designation}
                 onChange={(e) =>
                   setForm({ ...form, designation: e.target.value })
                 }
                 className="form-input"
-              />
+              >
+                <option value="">Select a designation…</option>
+                {Designations.map((d) => (
+                  <option key={d} value={d}>
+                    {DesignationLabels[d]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Courses (of the selected department)">
+              {coursesLoading ? (
+                <p className="text-sm text-gray-400">Loading courses…</p>
+              ) : courses.length === 0 ? (
+                <p className="text-sm text-gray-400">
+                  {form.departmentId
+                    ? "No courses in this department yet."
+                    : "Select a department to see its courses."}
+                </p>
+              ) : (
+                <div className="max-h-40 space-y-2 overflow-y-auto rounded-xl border border-gray-200 p-3">
+                  {courses.map((c) => (
+                    <label
+                      key={c.id}
+                      className="flex items-center gap-2 text-sm text-gray-700"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={form.courseIds.includes(c.id)}
+                        onChange={() => toggleCourse(c.id)}
+                      />
+                      {c.code} · {c.title}
+                    </label>
+                  ))}
+                </div>
+              )}
             </Field>
           </>
         )}
@@ -411,4 +497,3 @@ function EditUserModal({
     </Modal>
   );
 }
-

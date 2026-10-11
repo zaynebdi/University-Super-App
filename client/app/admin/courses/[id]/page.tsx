@@ -49,6 +49,7 @@ export default function AdminCourseDetailPage() {
                 </h1>
                 <p className="mt-1 text-sm text-gray-500">
                   {data.course.teacher?.name ?? "No teacher assigned"} ·{" "}
+                  {data.course.department?.name ?? "Unassigned"} ·{" "}
                   {data.course.creditHours} credit hours
                 </p>
               </div>
