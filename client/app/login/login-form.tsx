@@ -5,11 +5,14 @@ import { login } from "./actions";
 
 type LoginState = { success: boolean; error?: string };
 
-export function LoginForm() {
+export function LoginForm({ callbackUrl }: { callbackUrl?: string }) {
   const [state, formAction, isPending] = useActionState<LoginState, FormData>(login, { success: false });
 
   return (
     <form action={formAction} className="space-y-4">
+      {callbackUrl ? (
+        <input type="hidden" name="callbackUrl" value={callbackUrl} />
+      ) : null}
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
           Email
