@@ -189,6 +189,57 @@ describe("Results API", () => {
       expect(res.status).toBe(201);
     });
 
+    it("persists and returns feedback when provided", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "teacher" } });
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, teacherId: TEACHER_ID }));
+      mockTeacher.findOne.mockReturnValue(lean({ _id: TEACHER_ID }));
+      mockStudent.findById.mockReturnValue(lean({ _id: STUDENT_ID }));
+      mockResult.findOne.mockReturnValue(lean(null));
+      mockResult.create.mockResolvedValue({
+        _id: RESULT_ID,
+        studentId: STUDENT_ID,
+        courseId: COURSE_ID,
+        marks: 85,
+        grade: "A",
+        feedback: "Great work",
+      } as any);
+
+      const res = await createResult(
+        createMockRequest("http://localhost/api/results", "POST", {
+          ...validBody,
+          feedback: "Great work",
+        })
+      );
+      expect(res.status).toBe(201);
+      expect(mockResult.create).toHaveBeenCalledWith(
+        expect.objectContaining({ feedback: "Great work" })
+      );
+      const json = await res.json();
+      expect(json.data.feedback).toBe("Great work");
+    });
+
+    it("defaults feedback to an empty string when omitted", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "teacher" } });
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, teacherId: TEACHER_ID }));
+      mockTeacher.findOne.mockReturnValue(lean({ _id: TEACHER_ID }));
+      mockStudent.findById.mockReturnValue(lean({ _id: STUDENT_ID }));
+      mockResult.findOne.mockReturnValue(lean(null));
+      mockResult.create.mockResolvedValue({
+        _id: RESULT_ID,
+        studentId: STUDENT_ID,
+        courseId: COURSE_ID,
+        marks: 85,
+        grade: "A",
+      } as any);
+
+      const res = await createResult(
+        createMockRequest("http://localhost/api/results", "POST", validBody)
+      );
+      expect(res.status).toBe(201);
+      const json = await res.json();
+      expect(json.data.feedback).toBe("");
+    });
+
     it("returns 409 on a duplicate key race", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "teacher" } });
       mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, teacherId: TEACHER_ID }));
@@ -297,6 +348,33 @@ describe("Results API", () => {
       expect(json.data.marks).toBe(90);
     });
 
+    it("updates feedback on a result", async () => {
+      mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "teacher" } });
+      mockResult.findById.mockReturnValue(lean({ _id: RESULT_ID, courseId: COURSE_ID, marks: 80, grade: "B" }));
+      mockCourse.findById.mockReturnValue(lean({ teacherId: TEACHER_ID }));
+      mockTeacher.findOne.mockReturnValue(lean({ _id: TEACHER_ID }));
+      mockResult.findByIdAndUpdate.mockReturnValue(
+        lean({
+          _id: RESULT_ID,
+          studentId: STUDENT_ID,
+          courseId: COURSE_ID,
+          marks: 80,
+          grade: "B",
+          feedback: "Needs more practice",
+        })
+      );
+
+      const res = await put({ feedback: "Needs more practice" });
+      expect(res.status).toBe(200);
+      expect(mockResult.findByIdAndUpdate).toHaveBeenCalledWith(
+        RESULT_ID,
+        { feedback: "Needs more practice" },
+        { new: true }
+      );
+      const json = await res.json();
+      expect(json.data.feedback).toBe("Needs more practice");
+    });
+
     it("updates a result as an admin", async () => {
       mockAuth.mockResolvedValue({ user: { id: OTHER_USER, role: "admin" } });
       mockResult.findById.mockReturnValue(lean({ _id: RESULT_ID, courseId: COURSE_ID, marks: 80, grade: "B" }));
@@ -383,7 +461,7 @@ describe("Results API", () => {
       mockStudent.findById.mockReturnValue(lean({ _id: STUDENT_ID, userId: USER_SELF }));
       mockResult.find.mockReturnValue(
         chainPopulate([
-          { _id: "r1", courseId: { _id: COURSE_ID, code: "CS101", title: "Intro", creditHours: 3 }, marks: 92, grade: "A" },
+          { _id: "r1", courseId: { _id: COURSE_ID, code: "CS101", title: "Intro", creditHours: 3 }, marks: 92, grade: "A", feedback: "Well done" },
           { _id: "r2", courseId: { _id: COURSE_OTHER, code: "CS102", title: "Data", creditHours: 3 }, marks: 81, grade: "B" },
         ])
       );
@@ -393,6 +471,8 @@ describe("Results API", () => {
       const json = await res.json();
       expect(json.data.results).toHaveLength(2);
       expect(json.data.results[0].course.code).toBe("CS101");
+      expect(json.data.results[0].feedback).toBe("Well done");
+      expect(json.data.results[1].feedback).toBe("");
       expect(json.data.gpa).toBe(3.5);
     });
 

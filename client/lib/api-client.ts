@@ -238,6 +238,7 @@ export type ResultDTO = {
   courseId: string;
   marks: number;
   grade: string;
+  feedback?: string | null;
 };
 
 export type StudentResultsDTO = {
@@ -247,8 +248,32 @@ export type StudentResultsDTO = {
     course: { id: string; code: string; title: string; creditHours: number } | null;
     marks: number;
     grade: string;
+    feedback?: string | null;
   }[];
   gpa: number;
+};
+
+export type CourseResultsDTO = {
+  course: {
+    id: string;
+    code: string;
+    title: string;
+    semester: number;
+    creditHours: number;
+  };
+  students: {
+    id: string;
+    rollNo: string;
+    name: string | null;
+    email: string | null;
+    department: string | null;
+    semester: number;
+    resultId: string | null;
+    marks: number | null;
+    grade: string | null;
+    feedback: string;
+  }[];
+  classAverage: number;
 };
 
 export type CreateUserInput =
@@ -506,18 +531,26 @@ export const api = {
       ),
   },
   results: {
-    create: (input: { studentId: string; courseId: string; marks: number; grade: string }) =>
+    create: (input: {
+      studentId: string;
+      courseId: string;
+      marks: number;
+      grade: string;
+      feedback?: string;
+    }) =>
       apiFetch<ResultDTO>("/api/results", {
         method: "POST",
         body: JSON.stringify(input),
       }),
-    update: (id: string, input: { marks?: number; grade?: string }) =>
+    update: (id: string, input: { marks?: number; grade?: string; feedback?: string }) =>
       apiFetch<ResultDTO>(`/api/results/${id}`, {
         method: "PUT",
         body: JSON.stringify(input),
       }),
     byStudent: (studentId: string) =>
       apiFetch<StudentResultsDTO>(`/api/results/student/${studentId}`),
+    byCourse: (courseId: string) =>
+      apiFetch<CourseResultsDTO>(`/api/results/course/${courseId}`),
   },
 };
 

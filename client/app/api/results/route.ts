@@ -15,6 +15,7 @@ const createResultSchema = z
     courseId: z.string().regex(objectIdRegex),
     marks: z.number().min(0).max(100),
     grade: z.string().refine((grade) => grade in GradePoints, "Invalid grade"),
+    feedback: z.string().trim().max(2000).optional(),
   })
   .strict();
 
@@ -24,6 +25,7 @@ interface LeanResult {
   courseId: Types.ObjectId;
   marks: number;
   grade: string;
+  feedback?: string | null;
 }
 
 function toResultDTO(result: LeanResult) {
@@ -33,6 +35,7 @@ function toResultDTO(result: LeanResult) {
     courseId: result.courseId.toString(),
     marks: result.marks,
     grade: result.grade,
+    feedback: result.feedback ?? "",
   };
 }
 
@@ -94,6 +97,7 @@ export async function POST(req: Request) {
       courseId: parsed.data.courseId,
       marks: parsed.data.marks,
       grade: parsed.data.grade,
+      feedback: parsed.data.feedback ?? "",
     })) as unknown as LeanResult;
 
     return createdResponse(toResultDTO(created));

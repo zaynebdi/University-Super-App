@@ -11,6 +11,7 @@ interface LeanResult {
   courseId: { _id: Types.ObjectId; code: string; title: string; creditHours: number } | null;
   marks: number;
   grade: string;
+  feedback?: string | null;
 }
 
 export async function GET(
@@ -83,6 +84,7 @@ function toResultDTO(result: LeanResult) {
       : null,
     marks: result.marks,
     grade: result.grade,
+    feedback: result.feedback ?? "",
   };
 }
 

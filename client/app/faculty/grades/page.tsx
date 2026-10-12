@@ -25,7 +25,7 @@ import {
   ApiError,
   gradeFromMarks,
   type CourseDTO,
-  type CourseStudentDTO,
+  type CourseResultsDTO,
   type TeacherProfileDTO,
 } from "@/lib/api-client";
 import { useApiResource } from "@/lib/use-api-resource";
@@ -42,6 +42,7 @@ type GradeRow = {
   marks: number | null;
   grade: string | null;
   resultId: string | null;
+  feedback: string;
 };
 
 type CourseData = {
@@ -51,8 +52,7 @@ type CourseData = {
 
 type Roster = {
   key: string;
-  students: CourseStudentDTO[];
-  results: Record<string, { id: string; marks: number; grade: string } | null>;
+  data: CourseResultsDTO;
 };
 
 const statusStyles: Record<GradeStatus, string> = {
@@ -72,7 +72,7 @@ function initials(name: string) {
 }
 
 export default function FacultyGradesPage() {
-  const { data, error } = useApiResource<CourseData>(async () => {
+  const { data, loading, error } = useApiResource<CourseData>(async () => {
     const me = await api.teachers.me();
     const courses = await api.courses.list({ teacherId: me.id });
     return { me, courses };
@@ -102,34 +102,11 @@ export default function FacultyGradesPage() {
 
     (async () => {
       try {
-        const students = await api.courses.students(selectedCourseId);
-        const results = await Promise.all(
-          students.map(async (student) => {
-            try {
-              const data = await api.results.byStudent(student.id);
-              const match =
-                data.results.find(
-                  (result) => result.courseId === selectedCourseId,
-                ) ?? null;
-              return [
-                student.id,
-                match
-                  ? { id: match.id, marks: match.marks, grade: match.grade }
-                  : null,
-              ] as const;
-            } catch {
-              return [student.id, null] as const;
-            }
-          }),
-        );
+        const data = await api.results.byCourse(selectedCourseId);
 
         if (!active) return;
 
-        setRoster({
-          key: selectedCourseId,
-          students,
-          results: Object.fromEntries(results),
-        });
+        setRoster({ key: selectedCourseId, data });
         setRosterError(null);
       } catch (e) {
         if (active) {
@@ -148,37 +125,32 @@ export default function FacultyGradesPage() {
   const rosterReady = roster !== null && roster.key === selectedCourseId;
 
   const rows = useMemo<GradeRow[]>(() => {
-    const list = roster && roster.key === selectedCourseId ? roster.students : [];
-    const resultMap =
-      roster && roster.key === selectedCourseId ? roster.results : {};
+    const list =
+      roster && roster.key === selectedCourseId ? roster.data.students : [];
 
-    return list.map((student) => {
-      const result = resultMap[student.id] ?? null;
-
-      return {
-        id: student.id,
-        student: student.name,
-        rollNo: student.rollNo,
-        email: student.email,
-        initials: initials(student.name),
-        status: result ? "Graded" : "Pending",
-        marks: result ? result.marks : null,
-        grade: result ? result.grade : null,
-        resultId: result ? result.id : null,
-      };
-    });
+    return list.map((student) => ({
+      id: student.id,
+      student: student.name ?? "Unknown student",
+      rollNo: student.rollNo,
+      email: student.email ?? "",
+      initials: initials(student.name ?? "?"),
+      status: student.resultId ? "Graded" : "Pending",
+      marks: student.marks,
+      grade: student.grade,
+      resultId: student.resultId,
+      feedback: student.feedback ?? "",
+    }));
   }, [roster, selectedCourseId]);
 
   const gradedCount = rows.filter((row) => row.status === "Graded").length;
   const pendingCount = rows.length - gradedCount;
 
   const averageMarks = useMemo(() => {
-    const graded = rows.filter((row) => row.marks !== null);
-    if (!graded.length) return 0;
-    return Math.round(
-      graded.reduce((sum, row) => sum + (row.marks ?? 0), 0) / graded.length,
-    );
-  }, [rows]);
+    if (roster && roster.key === selectedCourseId) {
+      return roster.data.classAverage;
+    }
+    return 0;
+  }, [roster, selectedCourseId]);
 
   const distribution = useMemo(() => {
     const map = new Map<string, number>();
@@ -204,23 +176,33 @@ export default function FacultyGradesPage() {
 
   const rosterLoading = Boolean(selectedCourseId) && !rosterReady;
 
-  const saveGrade = async (studentId: string, marks: number) => {
+  const saveGrade = async (
+    studentId: string,
+    marks: number,
+    feedback: string,
+  ) => {
     if (!selectedCourseId) return;
 
     const grade = gradeFromMarks(marks);
     const row = rows.find((item) => item.id === studentId);
+    const trimmedFeedback = feedback.trim();
 
     setNotice(null);
 
     try {
       if (row?.resultId) {
-        await api.results.update(row.resultId, { marks, grade });
+        await api.results.update(row.resultId, {
+          marks,
+          grade,
+          feedback: trimmedFeedback,
+        });
       } else {
         await api.results.create({
           studentId,
           courseId: selectedCourseId,
           marks,
           grade,
+          feedback: trimmedFeedback,
         });
       }
 
@@ -254,6 +236,15 @@ export default function FacultyGradesPage() {
           <AlertCircle size={16} />
           {error}
         </div>
+      )}
+
+      {loading && !data && (
+        <Card className="p-10">
+          <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+            <Loader2 size={16} className="animate-spin" />
+            Loading gradebook…
+          </div>
+        </Card>
       )}
 
       {notice && (
@@ -689,10 +680,10 @@ function GradeModal({
   row: GradeRow;
   totalMarks: number;
   onClose: () => void;
-  onSave: (studentId: string, marks: number) => void;
+  onSave: (studentId: string, marks: number, feedback: string) => void;
 }) {
   const [marks, setMarks] = useState(row.marks?.toString() || "");
-  const [feedback, setFeedback] = useState("");
+  const [feedback, setFeedback] = useState(row.feedback);
 
   const numericMarks = Number(marks);
   const validMarks =
@@ -704,7 +695,7 @@ function GradeModal({
 
   const handleSave = () => {
     if (!validMarks) return;
-    onSave(row.id, numericMarks);
+    onSave(row.id, numericMarks, feedback);
   };
 
   return (
@@ -796,8 +787,8 @@ function GradeModal({
               />
 
               <p className="text-[11px] leading-5 text-indigo-700/75">
-                Saving this grade records the marks and the derived grade for
-                the student in this course.
+                Saving this grade records the marks, the derived grade and your
+                feedback for the student in this course.
               </p>
             </div>
           </div>

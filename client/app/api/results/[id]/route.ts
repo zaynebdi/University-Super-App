@@ -11,6 +11,7 @@ const updateResultSchema = z
   .object({
     marks: z.number().min(0).max(100).optional(),
     grade: z.string().refine((grade) => grade in GradePoints, "Invalid grade").optional(),
+    feedback: z.string().trim().max(2000).optional(),
   })
   .strict();
 
@@ -20,6 +21,7 @@ interface LeanResult {
   courseId: Types.ObjectId;
   marks: number;
   grade: string;
+  feedback?: string | null;
 }
 
 function toResultDTO(result: LeanResult) {
@@ -29,6 +31,7 @@ function toResultDTO(result: LeanResult) {
     courseId: result.courseId.toString(),
     marks: result.marks,
     grade: result.grade,
+    feedback: result.feedback ?? "",
   };
 }
 

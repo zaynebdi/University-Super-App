@@ -6,6 +6,7 @@ export interface IResult extends Document {
   courseId: Types.ObjectId;
   marks: number;
   grade: string;
+  feedback?: string;
 }
 
 const ResultSchema = new Schema<IResult>(
@@ -24,6 +25,7 @@ const ResultSchema = new Schema<IResult>(
     },
     marks: { type: Number, required: true, min: 0, max: 100 },
     grade: { type: String, required: true, trim: true },
+    feedback: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );
