@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Attendance, Student } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { MIN_ATTENDANCE_PERCENTAGE } from "@/lib/constants";
 import { Types } from "mongoose";
@@ -29,6 +30,7 @@ export async function GET(
     const student = (await Student.findById(studentId).lean()) as unknown as {
       _id: Types.ObjectId;
       userId: Types.ObjectId;
+      departmentId?: Types.ObjectId | null;
     } | null;
     if (!student) return notFoundResponse("Student not found");
 
@@ -36,6 +38,14 @@ export async function GET(
       return forbiddenResponse("Access denied");
     } else if (sessionUser.role !== "student" && sessionUser.role !== "admin") {
       return forbiddenResponse("Access denied");
+    } else if (sessionUser.role === "admin") {
+      const scope = getAdminScope(session);
+      if (
+        scope?.assignedDepartment &&
+        (!student.departmentId || student.departmentId.toString() !== scope.assignedDepartment)
+      ) {
+        return forbiddenResponse("You can only view students of your own department");
+      }
     }
 
     const filter: Record<string, unknown> = { studentId };

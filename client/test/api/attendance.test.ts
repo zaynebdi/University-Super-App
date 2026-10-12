@@ -54,6 +54,8 @@ const TEACHER_ID = "555555555555555555555555";
 const RECORD_ID = "666666666666666666666666";
 const USER_SELF = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const OTHER_USER = "bbbbbbbbbbbbbbbbbbbbbbbb";
+const DEPT_ID = "777777777777777777777777";
+const DEPT_OTHER = "888888888888888888888888";
 
 function createMockRequest(url: string, method = "GET", body?: unknown): Request {
   return new Request(url, { method, body: body ? JSON.stringify(body) : undefined });
@@ -181,6 +183,31 @@ describe("Attendance API", () => {
       expect(res.status).toBe(201);
     });
 
+    it("lets a department admin mark attendance for their own department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, teacherId: TEACHER_ID, departmentId: DEPT_ID }));
+      mockStudent.find.mockReturnValue(lean([{ _id: STUDENT_ID }]));
+      mockAttendance.findOneAndUpdate.mockReturnValue(
+        lean({ _id: RECORD_ID, courseId: COURSE_ID, studentId: STUDENT_ID, date: new Date("2026-02-01"), status: "present" })
+      );
+
+      const res = await markAttendance(createMockRequest("http://localhost/api/attendance", "POST", validBody));
+      expect(res.status).toBe(201);
+    });
+
+    it("returns 403 when a department admin marks attendance for another department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, teacherId: TEACHER_ID, departmentId: DEPT_OTHER }));
+
+      const res = await markAttendance(createMockRequest("http://localhost/api/attendance", "POST", validBody));
+      expect(res.status).toBe(403);
+      expect(mockAttendance.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
     it("returns 500 on database error", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "teacher" } });
       mockCourse.findById.mockImplementation(() => {
@@ -257,6 +284,28 @@ describe("Attendance API", () => {
       expect(json.data).toHaveLength(1);
       expect(json.data[0].student.rollNo).toBe("S-1");
       expect(json.data[0].status).toBe("absent");
+    });
+
+    it("lets a department admin list attendance for their own department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, teacherId: TEACHER_ID, departmentId: DEPT_ID }));
+      mockAttendance.find.mockReturnValue(chainPopulate([]));
+
+      const res = await get();
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 403 when a department admin lists another department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, teacherId: TEACHER_ID, departmentId: DEPT_OTHER }));
+
+      const res = await get();
+      expect(res.status).toBe(403);
+      expect(mockAttendance.find).not.toHaveBeenCalled();
     });
 
     it("returns 500 on database error", async () => {
@@ -348,6 +397,28 @@ describe("Attendance API", () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.data).toEqual([]);
+    });
+
+    it("lets a department admin view a student of their own department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockStudent.findById.mockReturnValue(lean({ _id: STUDENT_ID, userId: USER_SELF, departmentId: DEPT_ID }));
+      mockAttendance.find.mockReturnValue(chainPopulate([]));
+
+      const res = await get();
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 403 when a department admin views another department's student", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockStudent.findById.mockReturnValue(lean({ _id: STUDENT_ID, userId: USER_SELF, departmentId: DEPT_OTHER }));
+
+      const res = await get();
+      expect(res.status).toBe(403);
+      expect(mockAttendance.find).not.toHaveBeenCalled();
     });
 
     it("returns 500 on database error", async () => {

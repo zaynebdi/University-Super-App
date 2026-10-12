@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Course, Timetable } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { successResponse, createdResponse, errorResponse, forbiddenResponse, conflictResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { DaysOfWeek } from "@/lib/constants";
 import { z } from "zod";
@@ -25,6 +26,7 @@ interface LeanCourse {
   code: string;
   title: string;
   teacherId: Types.ObjectId | null;
+  departmentId?: Types.ObjectId | null;
 }
 
 async function findClashes(params: {
@@ -83,8 +85,8 @@ function toTimetableDTO(
 export async function GET(req: Request) {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
 
     const { searchParams } = new URL(req.url);
     const courseId = searchParams.get("courseId");
@@ -105,6 +107,17 @@ export async function GET(req: Request) {
     }
 
     await dbConnect();
+
+    if (scope.assignedDepartment) {
+      const deptCourses = (await Course.find({
+        departmentId: scope.assignedDepartment,
+      }).lean()) as unknown as { _id: Types.ObjectId }[];
+      const deptCourseIds = deptCourses.map((c) => c._id.toString());
+      if (courseId && !deptCourseIds.includes(courseId)) {
+        return forbiddenResponse("You can only view your own department's timetable");
+      }
+      if (!courseId) filter.courseId = { $in: deptCourseIds };
+    }
 
     const slots = (await Timetable.find(filter)
       .populate({ path: "courseId", select: "code title" })
@@ -146,8 +159,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
 
     const body = await req.json();
     const parsed = createTimetableSchema.safeParse(body);
@@ -161,6 +174,13 @@ export async function POST(req: Request) {
 
     const course = (await Course.findById(parsed.data.courseId).lean()) as unknown as LeanCourse | null;
     if (!course) return notFoundResponse("Course not found");
+
+    if (
+      scope.assignedDepartment &&
+      (!course.departmentId || course.departmentId.toString() !== scope.assignedDepartment)
+    ) {
+      return forbiddenResponse("You can only manage your own department's timetable");
+    }
 
     const clash = await findClashes({
       day: parsed.data.day,

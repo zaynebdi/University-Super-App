@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Course, Result, Teacher } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { GradePoints } from "@/lib/constants";
 import { z } from "zod";
@@ -65,6 +66,20 @@ export async function PUT(
       } | null;
       if (!course || !teacher || !course.teacherId || course.teacherId.toString() !== teacher._id.toString()) {
         return forbiddenResponse("You can only edit results for your own courses");
+      }
+    } else {
+      const scope = getAdminScope(session);
+      if (scope?.assignedDepartment) {
+        const course = (await Course.findById(existing.courseId).lean()) as unknown as {
+          departmentId?: Types.ObjectId | null;
+        } | null;
+        if (
+          !course ||
+          !course.departmentId ||
+          course.departmentId.toString() !== scope.assignedDepartment
+        ) {
+          return forbiddenResponse("You can only edit results for your own department");
+        }
       }
     }
 

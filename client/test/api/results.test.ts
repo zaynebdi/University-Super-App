@@ -56,6 +56,8 @@ const TEACHER_ID = "555555555555555555555555";
 const RESULT_ID = "666666666666666666666666";
 const USER_SELF = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const OTHER_USER = "bbbbbbbbbbbbbbbbbbbbbbbb";
+const DEPT_ID = "777777777777777777777777";
+const DEPT_OTHER = "888888888888888888888888";
 
 function createMockRequest(url: string, method = "GET", body?: unknown): Request {
   return new Request(url, { method, body: body ? JSON.stringify(body) : undefined });
@@ -198,6 +200,32 @@ describe("Results API", () => {
       expect(res.status).toBe(409);
     });
 
+    it("lets a department admin create a result for their own department's course", async () => {
+      mockAuth.mockResolvedValue({ user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID } });
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, teacherId: TEACHER_ID, departmentId: DEPT_ID }));
+      mockStudent.findById.mockReturnValue(lean({ _id: STUDENT_ID }));
+      mockResult.findOne.mockReturnValue(lean(null));
+      mockResult.create.mockResolvedValue({
+        _id: RESULT_ID,
+        studentId: STUDENT_ID,
+        courseId: COURSE_ID,
+        marks: 85,
+        grade: "A",
+      } as any);
+
+      const res = await createResult(createMockRequest("http://localhost/api/results", "POST", validBody));
+      expect(res.status).toBe(201);
+    });
+
+    it("returns 403 when a department admin creates a result for another department's course", async () => {
+      mockAuth.mockResolvedValue({ user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID } });
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, teacherId: TEACHER_ID, departmentId: DEPT_OTHER }));
+
+      const res = await createResult(createMockRequest("http://localhost/api/results", "POST", validBody));
+      expect(res.status).toBe(403);
+      expect(mockResult.create).not.toHaveBeenCalled();
+    });
+
     it("returns 500 on database error", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "teacher" } });
       mockCourse.findById.mockImplementation(() => {
@@ -279,6 +307,28 @@ describe("Results API", () => {
       expect(res.status).toBe(200);
     });
 
+    it("lets a department admin update a result of their own department", async () => {
+      mockAuth.mockResolvedValue({ user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID } });
+      mockResult.findById.mockReturnValue(lean({ _id: RESULT_ID, courseId: COURSE_ID, marks: 80, grade: "B" }));
+      mockCourse.findById.mockReturnValue(lean({ departmentId: DEPT_ID }));
+      mockResult.findByIdAndUpdate.mockReturnValue(
+        lean({ _id: RESULT_ID, studentId: STUDENT_ID, courseId: COURSE_ID, marks: 90, grade: "A" })
+      );
+
+      const res = await put({ marks: 90 });
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 403 when a department admin updates a result of another department", async () => {
+      mockAuth.mockResolvedValue({ user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID } });
+      mockResult.findById.mockReturnValue(lean({ _id: RESULT_ID, courseId: COURSE_ID, marks: 80, grade: "B" }));
+      mockCourse.findById.mockReturnValue(lean({ departmentId: DEPT_OTHER }));
+
+      const res = await put({ marks: 90 });
+      expect(res.status).toBe(403);
+      expect(mockResult.findByIdAndUpdate).not.toHaveBeenCalled();
+    });
+
     it("returns 500 on database error", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "teacher" } });
       mockResult.findById.mockImplementation(() => {
@@ -355,6 +405,24 @@ describe("Results API", () => {
       const json = await res.json();
       expect(json.data.results).toEqual([]);
       expect(json.data.gpa).toBe(0);
+    });
+
+    it("lets a department admin view a student of their own department", async () => {
+      mockAuth.mockResolvedValue({ user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID } });
+      mockStudent.findById.mockReturnValue(lean({ _id: STUDENT_ID, userId: USER_SELF, departmentId: DEPT_ID }));
+      mockResult.find.mockReturnValue(chainPopulate([]));
+
+      const res = await get();
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 403 when a department admin views another department's student", async () => {
+      mockAuth.mockResolvedValue({ user: { id: OTHER_USER, role: "admin", assignedDepartment: DEPT_ID } });
+      mockStudent.findById.mockReturnValue(lean({ _id: STUDENT_ID, userId: USER_SELF, departmentId: DEPT_OTHER }));
+
+      const res = await get();
+      expect(res.status).toBe(403);
+      expect(mockResult.find).not.toHaveBeenCalled();
     });
 
     it("returns 500 on database error", async () => {

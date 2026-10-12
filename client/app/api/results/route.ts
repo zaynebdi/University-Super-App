@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Course, Result, Student, Teacher } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { createdResponse, errorResponse, unauthorizedResponse, forbiddenResponse, conflictResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { GradePoints } from "@/lib/constants";
 import { z } from "zod";
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
     const course = (await Course.findById(parsed.data.courseId).lean()) as unknown as {
       _id: Types.ObjectId;
       teacherId: Types.ObjectId | null;
+      departmentId?: Types.ObjectId | null;
     } | null;
     if (!course) return notFoundResponse("Course not found");
 
@@ -67,6 +69,14 @@ export async function POST(req: Request) {
       } | null;
       if (!teacher || !course.teacherId || course.teacherId.toString() !== teacher._id.toString()) {
         return forbiddenResponse("You can only add results for your own courses");
+      }
+    } else {
+      const scope = getAdminScope(session);
+      if (
+        scope?.assignedDepartment &&
+        (!course.departmentId || course.departmentId.toString() !== scope.assignedDepartment)
+      ) {
+        return forbiddenResponse("You can only add results for your own department");
       }
     }
 

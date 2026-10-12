@@ -55,6 +55,8 @@ const SLOT_OTHER = "444444444444444444444444";
 const TEACHER_ID = "555555555555555555555555";
 const STUDENT_ID = "666666666666666666666666";
 const USER_SELF = "aaaaaaaaaaaaaaaaaaaaaaaa";
+const DEPT_ID = "777777777777777777777777";
+const DEPT_OTHER = "888888888888888888888888";
 
 function createMockRequest(url: string, method = "GET", body?: unknown): Request {
   return new Request(url, { method, body: body ? JSON.stringify(body) : undefined });
@@ -278,6 +280,55 @@ describe("Timetable API", () => {
       expect(json.data).not.toHaveProperty("password");
     });
 
+    it("lets a department admin create a slot for their own department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockCourse.findById.mockReturnValue(
+        lean({ _id: COURSE_ID, code: "CS101", title: "Intro", teacherId: null, departmentId: DEPT_ID })
+      );
+      mockTimetable.find.mockReturnValue(lean([]));
+      mockTimetable.create.mockResolvedValue({
+        _id: SLOT_ID,
+        day: "Monday",
+        startTime: "09:00",
+        endTime: "10:00",
+        room: "R1",
+      } as any);
+
+      const res = await createSlot(
+        createMockRequest("http://localhost/api/timetable", "POST", {
+          courseId: COURSE_ID,
+          day: "Monday",
+          startTime: "09:00",
+          endTime: "10:00",
+          room: "R1",
+        })
+      );
+      expect(res.status).toBe(201);
+    });
+
+    it("returns 403 when a department admin creates a slot for another department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockCourse.findById.mockReturnValue(
+        lean({ _id: COURSE_ID, code: "CS101", title: "Intro", teacherId: null, departmentId: DEPT_OTHER })
+      );
+
+      const res = await createSlot(
+        createMockRequest("http://localhost/api/timetable", "POST", {
+          courseId: COURSE_ID,
+          day: "Monday",
+          startTime: "09:00",
+          endTime: "10:00",
+          room: "R1",
+        })
+      );
+      expect(res.status).toBe(403);
+      expect(mockTimetable.create).not.toHaveBeenCalled();
+    });
+
     it("returns 500 on database error", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
       mockCourse.findById.mockImplementation(() => {
@@ -387,6 +438,35 @@ describe("Timetable API", () => {
       expect(json.data.room).toBe("R5");
     });
 
+    it("lets a department admin update a slot of their own department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockTimetable.findById.mockReturnValue(lean({ _id: SLOT_ID, courseId: COURSE_ID, day: "Monday", startTime: "09:00", endTime: "10:00", room: "R1" }));
+      mockCourse.findById.mockReturnValue(
+        lean({ _id: COURSE_ID, code: "CS101", title: "Intro", teacherId: null, departmentId: DEPT_ID })
+      );
+      mockTimetable.find.mockReturnValue(lean([]));
+      mockTimetable.findByIdAndUpdate.mockReturnValue(lean({ _id: SLOT_ID, day: "Monday", startTime: "09:00", endTime: "10:00", room: "R5" }));
+
+      const res = await put({ room: "R5" });
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 403 when a department admin updates a slot of another department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockTimetable.findById.mockReturnValue(lean({ _id: SLOT_ID, courseId: COURSE_ID, day: "Monday", startTime: "09:00", endTime: "10:00", room: "R1" }));
+      mockCourse.findById.mockReturnValue(
+        lean({ _id: COURSE_ID, code: "CS101", title: "Intro", teacherId: null, departmentId: DEPT_OTHER })
+      );
+
+      const res = await put({ room: "R5" });
+      expect(res.status).toBe(403);
+      expect(mockTimetable.findByIdAndUpdate).not.toHaveBeenCalled();
+    });
+
     it("returns 500 on database error", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
       mockTimetable.findById.mockImplementation(() => {
@@ -435,6 +515,31 @@ describe("Timetable API", () => {
       const res = await del();
       expect(res.status).toBe(200);
       expect(mockTimetable.findByIdAndDelete).toHaveBeenCalledWith(SLOT_ID);
+    });
+
+    it("lets a department admin delete a slot of their own department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockTimetable.findById.mockReturnValue(lean({ _id: SLOT_ID, courseId: COURSE_ID }));
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, departmentId: DEPT_ID }));
+      mockTimetable.findByIdAndDelete.mockResolvedValue({ _id: SLOT_ID } as any);
+
+      const res = await del();
+      expect(res.status).toBe(200);
+      expect(mockTimetable.findByIdAndDelete).toHaveBeenCalledWith(SLOT_ID);
+    });
+
+    it("returns 403 when a department admin deletes a slot of another department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockTimetable.findById.mockReturnValue(lean({ _id: SLOT_ID, courseId: COURSE_ID }));
+      mockCourse.findById.mockReturnValue(lean({ _id: COURSE_ID, departmentId: DEPT_OTHER }));
+
+      const res = await del();
+      expect(res.status).toBe(403);
+      expect(mockTimetable.findByIdAndDelete).not.toHaveBeenCalled();
     });
 
     it("returns 500 on database error", async () => {
@@ -616,6 +721,52 @@ describe("Timetable API", () => {
         courseId: COURSE_ID,
         day: "Monday",
       });
+    });
+
+    it("restricts a department admin to their own department's slots", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockCourse.find.mockReturnValue(lean([{ _id: COURSE_ID }]));
+      mockTimetable.find.mockReturnValue(chainPopulate([]));
+
+      const res = await listSlots(
+        createMockRequest("http://localhost/api/timetable")
+      );
+      expect(res.status).toBe(200);
+      expect(mockCourse.find).toHaveBeenCalledWith({ departmentId: DEPT_ID });
+      expect(mockTimetable.find).toHaveBeenCalledWith({
+        courseId: { $in: [COURSE_ID] },
+      });
+    });
+
+    it("allows a department admin to filter by their own department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockCourse.find.mockReturnValue(lean([{ _id: COURSE_ID }]));
+      mockTimetable.find.mockReturnValue(chainPopulate([]));
+
+      const res = await listSlots(
+        createMockRequest(`http://localhost/api/timetable?courseId=${COURSE_ID}`)
+      );
+      expect(res.status).toBe(200);
+      expect(mockTimetable.find).toHaveBeenCalledWith({ courseId: COURSE_ID });
+    });
+
+    it("returns 403 when a department admin filters another department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      });
+      mockCourse.find.mockReturnValue(lean([{ _id: COURSE_ID }]));
+
+      const res = await listSlots(
+        createMockRequest(
+          `http://localhost/api/timetable?courseId=${COURSE_OTHER}`
+        )
+      );
+      expect(res.status).toBe(403);
+      expect(mockTimetable.find).not.toHaveBeenCalled();
     });
 
     it("returns an empty list when there are no entries", async () => {

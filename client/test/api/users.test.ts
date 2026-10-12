@@ -964,6 +964,38 @@ describe("Students API", () => {
       expect(res.status).toBe(404);
     });
 
+    it("lets a department admin view courses of a student in their own department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      mockStudent.findById.mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ _id: STUDENT_OTHER, departmentId: DEPT_ID }),
+      } as any);
+      mockEnrollment.find.mockReturnValue({
+        populate: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue([]),
+        }),
+      } as any);
+
+      const req = createMockRequest("http://localhost/api/students/" + STUDENT_OTHER + "/courses");
+      const res = await getStudentCourses(req, { params: Promise.resolve({ id: STUDENT_OTHER }) });
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 403 when a department admin views courses of another department's student", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      mockStudent.findById.mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ _id: STUDENT_OTHER, departmentId: DEPT_OTHER }),
+      } as any);
+
+      const req = createMockRequest("http://localhost/api/students/" + STUDENT_OTHER + "/courses");
+      const res = await getStudentCourses(req, { params: Promise.resolve({ id: STUDENT_OTHER }) });
+      expect(res.status).toBe(403);
+      expect(mockEnrollment.find).not.toHaveBeenCalled();
+    });
+
     it("returns 500 on database error", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "student" } } as any);
       mockDb.mockRejectedValueOnce(new Error("db down"));

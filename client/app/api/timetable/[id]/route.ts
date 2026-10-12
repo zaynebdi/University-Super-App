@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Course, Timetable } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { successResponse, errorResponse, forbiddenResponse, conflictResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { DaysOfWeek } from "@/lib/constants";
 import { z } from "zod";
@@ -24,6 +25,7 @@ interface LeanCourse {
   code: string;
   title: string;
   teacherId: Types.ObjectId | null;
+  departmentId?: Types.ObjectId | null;
 }
 
 interface LeanSlot {
@@ -94,8 +96,8 @@ export async function PUT(
 ) {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
 
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) return errorResponse("Invalid timetable ID", 400);
@@ -112,6 +114,13 @@ export async function PUT(
     const effectiveCourseId = parsed.data.courseId ?? existing.courseId.toString();
     const course = (await Course.findById(effectiveCourseId).lean()) as unknown as LeanCourse | null;
     if (!course) return notFoundResponse("Course not found");
+
+    if (
+      scope.assignedDepartment &&
+      (!course.departmentId || course.departmentId.toString() !== scope.assignedDepartment)
+    ) {
+      return forbiddenResponse("You can only manage your own department's timetable");
+    }
 
     const effective = {
       day: parsed.data.day ?? existing.day,
@@ -150,16 +159,29 @@ export async function DELETE(
 ) {
   try {
     const session = await auth();
-    const role = (session?.user as { role?: string })?.role;
-    if (role !== "admin") return forbiddenResponse("Admin only");
+    const scope = getAdminScope(session);
+    if (!scope) return forbiddenResponse("Admin only");
 
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) return errorResponse("Invalid timetable ID", 400);
 
     await dbConnect();
 
-    const existing = await Timetable.findById(id).lean();
+    const existing = (await Timetable.findById(id).lean()) as unknown as LeanSlot | null;
     if (!existing) return notFoundResponse("Timetable entry not found");
+
+    if (scope.assignedDepartment) {
+      const course = (await Course.findById(existing.courseId).lean()) as unknown as {
+        departmentId?: Types.ObjectId | null;
+      } | null;
+      if (
+        !course ||
+        !course.departmentId ||
+        course.departmentId.toString() !== scope.assignedDepartment
+      ) {
+        return forbiddenResponse("You can only manage your own department's timetable");
+      }
+    }
 
     await Timetable.findByIdAndDelete(id);
 

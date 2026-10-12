@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { Attendance, Course, Teacher } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { Types } from "mongoose";
 
@@ -58,6 +59,7 @@ export async function GET(
     const course = (await Course.findById(courseId).lean()) as unknown as {
       _id: Types.ObjectId;
       teacherId: Types.ObjectId | null;
+      departmentId?: Types.ObjectId | null;
     } | null;
     if (!course) return notFoundResponse("Course not found");
 
@@ -65,6 +67,14 @@ export async function GET(
       const teacher = (await Teacher.findOne({ userId: sessionUser.id }).lean()) as unknown as { _id: Types.ObjectId } | null;
       if (!teacher || !course.teacherId || course.teacherId.toString() !== teacher._id.toString()) {
         return forbiddenResponse("Access denied");
+      }
+    } else {
+      const scope = getAdminScope(session);
+      if (
+        scope?.assignedDepartment &&
+        (!course.departmentId || course.departmentId.toString() !== scope.assignedDepartment)
+      ) {
+        return forbiddenResponse("You can only view attendance for your own department");
       }
     }
 

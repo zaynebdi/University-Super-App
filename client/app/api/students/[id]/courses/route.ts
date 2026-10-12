@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth-server";
 import dbConnect from "@/lib/db";
 import { User, Student, Enrollment } from "@/lib/models";
+import { getAdminScope } from "@/lib/admin-scope";
 import { successResponse, errorResponse, unauthorizedResponse, forbiddenResponse, notFoundResponse, serverErrorResponse } from "@/lib/api/response";
 import { Types } from "mongoose";
 
@@ -35,6 +36,17 @@ export async function GET(
     }
 
     if (!student) return notFoundResponse("Student not found");
+
+    if (isAdmin) {
+      const scope = getAdminScope(session);
+      if (
+        scope?.assignedDepartment &&
+        (!student.departmentId ||
+          student.departmentId.toString() !== scope.assignedDepartment)
+      ) {
+        return forbiddenResponse("You can only view students of your own department");
+      }
+    }
 
     const enrollments = await Enrollment.find({ studentId: student._id })
       .populate({
