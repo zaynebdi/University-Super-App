@@ -1,219 +1,267 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
   ArrowLeft,
   Award,
   CalendarDays,
-  Check,
   CheckCircle2,
   ChevronDown,
   Clock3,
-  Download,
   FileText,
+  Loader2,
   MessageSquare,
   Search,
   Send,
-  User,
   Users,
   X,
 } from "lucide-react";
 
 import Card from "@/components/ui/Card";
+import {
+  api,
+  ApiError,
+  gradeFromMarks,
+  type CourseDTO,
+  type CourseStudentDTO,
+  type TeacherProfileDTO,
+} from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
 
-type SubmissionStatus = "Submitted" | "Late" | "Not Submitted" | "Graded";
+type GradeStatus = "Graded" | "Pending";
 
-type Submission = {
+type GradeRow = {
   id: string;
   student: string;
-  studentId: string;
+  rollNo: string;
+  email: string;
   initials: string;
-  submittedAt: string;
-  status: SubmissionStatus;
+  status: GradeStatus;
   marks: number | null;
-  feedback: string;
+  grade: string | null;
+  resultId: string | null;
 };
 
-const initialSubmissions: Submission[] = [
-  {
-    id: "sub-001",
-    student: "Ahmed Hassan",
-    studentId: "SE-2022-041",
-    initials: "AH",
-    submittedAt: "Sep 25, 2026 · 08:42 PM",
-    status: "Graded",
-    marks: 18,
-    feedback: "Strong architecture analysis with clear diagrams.",
-  },
-  {
-    id: "sub-002",
-    student: "Ayesha Malik",
-    studentId: "SE-2022-057",
-    initials: "AM",
-    submittedAt: "Sep 25, 2026 · 10:18 PM",
-    status: "Graded",
-    marks: 17,
-    feedback: "Good analysis. Add more detail around service communication.",
-  },
-  {
-    id: "sub-003",
-    student: "Hamza Ali",
-    studentId: "SE-2022-063",
-    initials: "HA",
-    submittedAt: "Sep 26, 2026 · 11:21 PM",
-    status: "Submitted",
-    marks: null,
-    feedback: "",
-  },
-  {
-    id: "sub-004",
-    student: "Fatima Noor",
-    studentId: "SE-2022-071",
-    initials: "FN",
-    submittedAt: "Sep 26, 2026 · 09:12 PM",
-    status: "Submitted",
-    marks: null,
-    feedback: "",
-  },
-  {
-    id: "sub-005",
-    student: "Usman Tariq",
-    studentId: "SE-2022-084",
-    initials: "UT",
-    submittedAt: "Sep 27, 2026 · 12:14 AM",
-    status: "Late",
-    marks: null,
-    feedback: "",
-  },
-  {
-    id: "sub-006",
-    student: "Maham Khan",
-    studentId: "SE-2022-091",
-    initials: "MK",
-    submittedAt: "Sep 25, 2026 · 07:54 PM",
-    status: "Graded",
-    marks: 16,
-    feedback: "Well structured report.",
-  },
-  {
-    id: "sub-007",
-    student: "Bilal Ahmed",
-    studentId: "SE-2022-103",
-    initials: "BA",
-    submittedAt: "—",
-    status: "Not Submitted",
-    marks: null,
-    feedback: "",
-  },
-  {
-    id: "sub-008",
-    student: "Hira Shah",
-    studentId: "SE-2022-118",
-    initials: "HS",
-    submittedAt: "Sep 26, 2026 · 08:31 PM",
-    status: "Submitted",
-    marks: null,
-    feedback: "",
-  },
-];
+type CourseData = {
+  me: TeacherProfileDTO;
+  courses: CourseDTO[];
+};
 
-const statusStyles: Record<SubmissionStatus, string> = {
-  Submitted: "bg-indigo-50 text-indigo-700 border-indigo-100",
+type Roster = {
+  key: string;
+  students: CourseStudentDTO[];
+  results: Record<string, { id: string; marks: number; grade: string } | null>;
+};
+
+const statusStyles: Record<GradeStatus, string> = {
   Graded: "bg-emerald-50 text-emerald-700 border-emerald-100",
-  Late: "bg-amber-50 text-amber-700 border-amber-100",
-  "Not Submitted": "bg-gray-100 text-gray-500 border-gray-200",
+  Pending: "bg-gray-100 text-gray-500 border-gray-200",
 };
 
-export default function FacultyAssignmentDetailsPage() {
-  const [submissions, setSubmissions] =
-    useState<Submission[]>(initialSubmissions);
+const TOTAL_MARKS = 100;
 
+function initials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+export default function FacultyGradesPage() {
+  const { data, error } = useApiResource<CourseData>(async () => {
+    const me = await api.teachers.me();
+    const courses = await api.courses.list({ teacherId: me.id });
+    return { me, courses };
+  });
+
+  const courses = data?.courses ?? [];
+
+  const [courseId, setCourseId] = useState("");
   const [activeTab, setActiveTab] = useState<"Overview" | "Submissions">(
     "Overview",
   );
-
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [selectedSubmission, setSelectedSubmission] =
-    useState<Submission | null>(null);
+  const [selectedRow, setSelectedRow] = useState<GradeRow | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [roster, setRoster] = useState<Roster | null>(null);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const assignment = {
-    id: "fa-001",
-    title: "Microservices Architecture Report",
-    courseCode: "SE-401",
-    courseName: "Software Architecture",
-    type: "Report",
-    description:
-      "Prepare a technical report analyzing a microservices-based architecture. Explain service boundaries, communication patterns, scalability considerations, fault tolerance, and deployment strategy.",
-    dueDate: "26 Sep 2026",
-    dueTime: "11:59 PM",
-    totalMarks: 20,
-    submissions: 30,
-    totalStudents: 42,
-  };
+  const selectedCourseId = courseId || courses[0]?.id || "";
+  const selectedCourse = courses.find((course) => course.id === selectedCourseId);
 
-  const submittedCount = submissions.filter(
-    (item) =>
-      item.status === "Submitted" ||
-      item.status === "Late" ||
-      item.status === "Graded",
-  ).length;
+  useEffect(() => {
+    if (!selectedCourseId) return;
 
-  const gradedCount = submissions.filter(
-    (item) => item.status === "Graded",
-  ).length;
+    let active = true;
 
-  const lateCount = submissions.filter((item) => item.status === "Late").length;
+    (async () => {
+      try {
+        const students = await api.courses.students(selectedCourseId);
+        const results = await Promise.all(
+          students.map(async (student) => {
+            try {
+              const data = await api.results.byStudent(student.id);
+              const match =
+                data.results.find(
+                  (result) => result.courseId === selectedCourseId,
+                ) ?? null;
+              return [
+                student.id,
+                match
+                  ? { id: match.id, marks: match.marks, grade: match.grade }
+                  : null,
+              ] as const;
+            } catch {
+              return [student.id, null] as const;
+            }
+          }),
+        );
+
+        if (!active) return;
+
+        setRoster({
+          key: selectedCourseId,
+          students,
+          results: Object.fromEntries(results),
+        });
+        setRosterError(null);
+      } catch (e) {
+        if (active) {
+          setRosterError(
+            e instanceof ApiError ? e.message : "Failed to load students",
+          );
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedCourseId, refreshKey]);
+
+  const rosterReady = roster !== null && roster.key === selectedCourseId;
+
+  const rows = useMemo<GradeRow[]>(() => {
+    const list = roster && roster.key === selectedCourseId ? roster.students : [];
+    const resultMap =
+      roster && roster.key === selectedCourseId ? roster.results : {};
+
+    return list.map((student) => {
+      const result = resultMap[student.id] ?? null;
+
+      return {
+        id: student.id,
+        student: student.name,
+        rollNo: student.rollNo,
+        email: student.email,
+        initials: initials(student.name),
+        status: result ? "Graded" : "Pending",
+        marks: result ? result.marks : null,
+        grade: result ? result.grade : null,
+        resultId: result ? result.id : null,
+      };
+    });
+  }, [roster, selectedCourseId]);
+
+  const gradedCount = rows.filter((row) => row.status === "Graded").length;
+  const pendingCount = rows.length - gradedCount;
 
   const averageMarks = useMemo(() => {
-    const graded = submissions.filter((item) => item.marks !== null);
-
+    const graded = rows.filter((row) => row.marks !== null);
     if (!graded.length) return 0;
-
     return Math.round(
-      graded.reduce((sum, item) => sum + (item.marks || 0), 0) / graded.length,
+      graded.reduce((sum, row) => sum + (row.marks ?? 0), 0) / graded.length,
     );
-  }, [submissions]);
+  }, [rows]);
 
-  const filteredSubmissions = submissions.filter((submission) => {
+  const distribution = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of rows) {
+      if (!row.grade) continue;
+      map.set(row.grade, (map.get(row.grade) ?? 0) + 1);
+    }
+    return Array.from(map.entries());
+  }, [rows]);
+
+  const filteredRows = rows.filter((row) => {
+    const query = search.trim().toLowerCase();
     const matchesSearch =
-      submission.student.toLowerCase().includes(search.toLowerCase()) ||
-      submission.studentId.toLowerCase().includes(search.toLowerCase());
+      !query ||
+      row.student.toLowerCase().includes(query) ||
+      row.rollNo.toLowerCase().includes(query);
 
     const matchesStatus =
-      statusFilter === "All" || submission.status === statusFilter;
+      statusFilter === "All" || row.status === statusFilter;
 
     return matchesSearch && matchesStatus;
   });
 
-  const saveGrade = (submissionId: string, marks: number, feedback: string) => {
-    setSubmissions((current) =>
-      current.map((submission) =>
-        submission.id === submissionId
-          ? {
-              ...submission,
-              marks,
-              feedback,
-              status: "Graded",
-            }
-          : submission,
-      ),
-    );
+  const rosterLoading = Boolean(selectedCourseId) && !rosterReady;
 
-    setSelectedSubmission(null);
+  const saveGrade = async (studentId: string, marks: number) => {
+    if (!selectedCourseId) return;
+
+    const grade = gradeFromMarks(marks);
+    const row = rows.find((item) => item.id === studentId);
+
+    setNotice(null);
+
+    try {
+      if (row?.resultId) {
+        await api.results.update(row.resultId, { marks, grade });
+      } else {
+        await api.results.create({
+          studentId,
+          courseId: selectedCourseId,
+          marks,
+          grade,
+        });
+      }
+
+      setSelectedRow(null);
+      setRefreshKey((key) => key + 1);
+    } catch (e) {
+      setNotice(e instanceof ApiError ? e.message : "Failed to save grade");
+    }
   };
+
+  const courseCode = selectedCourse?.code ?? "—";
+  const courseTitle = selectedCourse?.title ?? "Gradebook";
+  const semester = selectedCourse ? String(selectedCourse.semester) : "—";
+  const creditHours = selectedCourse
+    ? `${selectedCourse.creditHours} credits`
+    : "—";
 
   return (
     <div className="mx-auto max-w-375 space-y-7">
       {/* Back */}
       <Link
-        href="/faculty/assignments"
+        href="/faculty/courses"
         className="inline-flex items-center gap-2 text-xs font-semibold text-gray-500 hover:text-indigo-600"
       >
         <ArrowLeft size={15} />
-        Back to Assignments
+        Back to Courses
       </Link>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <AlertCircle size={16} />
+          {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <AlertCircle size={16} />
+          {notice}
+        </div>
+      )}
 
       {/* Hero */}
       <Card className="overflow-hidden">
@@ -225,91 +273,112 @@ export default function FacultyAssignmentDetailsPage() {
               <div>
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-[10px] font-semibold text-indigo-200">
                   <FileText size={13} />
-                  {assignment.courseCode} · {assignment.type}
+                  {courseCode} · Gradebook
                 </div>
 
                 <h1 className="max-w-3xl text-2xl font-bold tracking-tight lg:text-3xl">
-                  {assignment.title}
+                  {courseTitle}
                 </h1>
 
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-white/55">
-                  {assignment.courseName} · Faculty Assignment Workspace
+                  Course Gradebook · Faculty Workspace
                 </p>
 
                 <div className="mt-5 flex flex-wrap gap-2">
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[10px] text-white/70">
                     <CalendarDays size={12} />
-                    Due {assignment.dueDate}
-                  </span>
-
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[10px] text-white/70">
-                    <Clock3 size={12} />
-                    {assignment.dueTime}
+                    Semester {semester}
                   </span>
 
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[10px] text-white/70">
                     <Award size={12} />
-                    {assignment.totalMarks} marks
+                    {creditHours}
+                  </span>
+
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-[10px] text-white/70">
+                    <FileText size={12} />
+                    {TOTAL_MARKS} marks
                   </span>
                 </div>
               </div>
 
               <div className="grid min-w-57.5 grid-cols-2 gap-3 self-start">
-                <HeroMetric
-                  label="Submitted"
-                  value={`${submittedCount}/${assignment.totalStudents}`}
-                />
+                <HeroMetric label="Students" value={`${rows.length}`} />
 
                 <HeroMetric label="Graded" value={`${gradedCount}`} />
 
-                <HeroMetric label="Late" value={`${lateCount}`} />
+                <HeroMetric label="Pending" value={`${pendingCount}`} />
 
                 <HeroMetric
                   label="Avg. Marks"
-                  value={`${averageMarks}/${assignment.totalMarks}`}
+                  value={`${averageMarks}/${TOTAL_MARKS}`}
                 />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex overflow-x-auto border-b border-gray-100 px-5">
-          {(["Overview", "Submissions"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`relative whitespace-nowrap px-5 py-4 text-xs font-semibold transition ${
-                activeTab === tab
-                  ? "text-indigo-600"
-                  : "text-gray-400 hover:text-gray-700"
-              }`}
-            >
-              {tab}
+        {/* Course selector + Tabs */}
+        <div className="flex flex-col gap-4 border-b border-gray-100 p-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex overflow-x-auto">
+            {(["Overview", "Submissions"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`relative whitespace-nowrap px-5 py-3 text-xs font-semibold transition ${
+                  activeTab === tab
+                    ? "text-indigo-600"
+                    : "text-gray-400 hover:text-gray-700"
+                }`}
+              >
+                {tab}
 
-              {tab === "Submissions" && (
-                <span className="ml-2 rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px]">
-                  {submittedCount}
-                </span>
-              )}
+                {tab === "Submissions" && (
+                  <span className="ml-2 rounded-full bg-gray-100 px-1.5 py-0.5 text-[9px]">
+                    {rows.length}
+                  </span>
+                )}
 
-              {activeTab === tab && (
-                <span className="absolute bottom-0 left-5 right-5 h-0.5 rounded-full bg-indigo-600" />
-              )}
-            </button>
-          ))}
+                {activeTab === tab && (
+                  <span className="absolute bottom-0 left-5 right-5 h-0.5 rounded-full bg-indigo-600" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          <select
+            value={selectedCourseId}
+            onChange={(e) => {
+              setCourseId(e.target.value);
+              setSelectedRow(null);
+            }}
+            className="h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-xs text-gray-600 outline-none focus:border-indigo-400 lg:w-72"
+          >
+            {courses.length === 0 && <option value="">No courses</option>}
+            {courses.map((course) => (
+              <option key={course.id} value={course.id}>
+                {course.code} · {course.title}
+              </option>
+            ))}
+          </select>
         </div>
       </Card>
 
+      {rosterError && (
+        <div className="flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <AlertCircle size={16} />
+          {rosterError}
+        </div>
+      )}
+
       {activeTab === "Overview" ? (
         <>
-          {/* Description */}
           <div className="grid gap-6 lg:grid-cols-[1.45fr_1fr]">
             <Card className="p-6">
               <SectionHeader
                 icon={<FileText size={17} />}
-                title="Assignment Details"
-                subtitle="Instructions and assessment information"
+                title="Course Details"
+                subtitle="Gradebook information"
               />
 
               <div className="mt-6">
@@ -318,26 +387,24 @@ export default function FacultyAssignmentDetailsPage() {
                 </h3>
 
                 <p className="mt-3 text-sm leading-7 text-gray-500">
-                  {assignment.description}
+                  Select a course to review enrolled students and record their
+                  marks. Grades are derived from the entered marks.
                 </p>
               </div>
 
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 <InfoItem
                   label="Course"
-                  value={`${assignment.courseCode} · ${assignment.courseName}`}
+                  value={`${courseCode} · ${courseTitle}`}
                 />
 
-                <InfoItem label="Assignment Type" value={assignment.type} />
+                <InfoItem label="Semester" value={semester} />
 
-                <InfoItem
-                  label="Due Date"
-                  value={`${assignment.dueDate} · ${assignment.dueTime}`}
-                />
+                <InfoItem label="Credit Hours" value={creditHours} />
 
                 <InfoItem
                   label="Maximum Marks"
-                  value={`${assignment.totalMarks} marks`}
+                  value={`${TOTAL_MARKS} marks`}
                 />
               </div>
             </Card>
@@ -345,37 +412,33 @@ export default function FacultyAssignmentDetailsPage() {
             <Card className="p-6">
               <SectionHeader
                 icon={<BarIcon />}
-                title="Submission Analytics"
-                subtitle="Current assignment activity"
+                title="Grading Progress"
+                subtitle="Current course activity"
               />
 
               <div className="mt-6 space-y-5">
                 <AnalyticsRow
-                  label="Submission Rate"
-                  value={`${Math.round(
-                    (submittedCount / assignment.totalStudents) * 100,
-                  )}%`}
-                  percentage={Math.round(
-                    (submittedCount / assignment.totalStudents) * 100,
-                  )}
-                />
-
-                <AnalyticsRow
                   label="Grading Progress"
                   value={`${Math.round(
-                    (gradedCount / Math.max(submittedCount, 1)) * 100,
+                    (gradedCount / Math.max(rows.length, 1)) * 100,
                   )}%`}
                   percentage={Math.round(
-                    (gradedCount / Math.max(submittedCount, 1)) * 100,
+                    (gradedCount / Math.max(rows.length, 1)) * 100,
                   )}
                 />
 
                 <AnalyticsRow
-                  label="Late Submissions"
-                  value={`${lateCount}`}
+                  label="Pending Grading"
+                  value={`${pendingCount}`}
                   percentage={Math.round(
-                    (lateCount / assignment.totalStudents) * 100,
+                    (pendingCount / Math.max(rows.length, 1)) * 100,
                   )}
+                />
+
+                <AnalyticsRow
+                  label="Average Marks"
+                  value={`${averageMarks}/${TOTAL_MARKS}`}
+                  percentage={Math.round((averageMarks / TOTAL_MARKS) * 100)}
                 />
               </div>
 
@@ -384,53 +447,50 @@ export default function FacultyAssignmentDetailsPage() {
                 className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs font-semibold text-white hover:bg-indigo-700"
               >
                 <Users size={15} />
-                Review Submissions
+                Review Students
               </button>
             </Card>
           </div>
 
-          {/* Assessment criteria */}
+          {/* Grade distribution */}
           <Card className="p-6">
             <SectionHeader
               icon={<Award size={17} />}
-              title="Assessment Criteria"
-              subtitle="Suggested grading structure"
+              title="Grade Distribution"
+              subtitle="Grades recorded for this course"
             />
 
-            <div className="mt-6 grid gap-4 md:grid-cols-3">
-              <Criterion
-                title="Architecture Design"
-                percentage="40%"
-                description="Service boundaries, architecture quality and diagrams."
-              />
-
-              <Criterion
-                title="Technical Analysis"
-                percentage="35%"
-                description="Depth of research, scalability and fault tolerance."
-              />
-
-              <Criterion
-                title="Documentation"
-                percentage="25%"
-                description="Clarity, structure, references and presentation."
-              />
-            </div>
+            {distribution.length === 0 ? (
+              <p className="mt-6 text-sm text-gray-400">
+                No grades recorded yet.
+              </p>
+            ) : (
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                {distribution.map(([grade, count]) => (
+                  <Criterion
+                    key={grade}
+                    title={grade}
+                    percentage={`${count}`}
+                    description={`${count} student${count === 1 ? "" : "s"}`}
+                  />
+                ))}
+              </div>
+            )}
           </Card>
         </>
       ) : (
         <>
-          {/* Submission workspace */}
+          {/* Student workspace */}
           <Card className="overflow-hidden">
             <div className="border-b border-gray-100 p-5">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div>
                   <h2 className="text-base font-bold text-gray-950">
-                    Student Submissions
+                    Enrolled Students
                   </h2>
 
                   <p className="mt-1 text-xs text-gray-400">
-                    Review files, assign marks, and provide feedback.
+                    Review students and record their marks.
                   </p>
                 </div>
 
@@ -449,13 +509,7 @@ export default function FacultyAssignmentDetailsPage() {
                   <Select
                     value={statusFilter}
                     onChange={setStatusFilter}
-                    options={[
-                      "All",
-                      "Submitted",
-                      "Graded",
-                      "Late",
-                      "Not Submitted",
-                    ]}
+                    options={["All", "Graded", "Pending"]}
                   />
                 </div>
               </div>
@@ -470,7 +524,7 @@ export default function FacultyAssignmentDetailsPage() {
                     </th>
 
                     <th className="px-3 py-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                      Submitted
+                      Email
                     </th>
 
                     <th className="px-3 py-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -488,172 +542,137 @@ export default function FacultyAssignmentDetailsPage() {
                 </thead>
 
                 <tbody className="divide-y divide-gray-100">
-                  {filteredSubmissions.map((submission) => (
-                    <tr
-                      key={submission.id}
-                      className="transition hover:bg-gray-50/60"
-                    >
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="grid h-9 w-9 place-items-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600 text-[10px] font-bold text-white">
-                            {submission.initials}
-                          </div>
-
-                          <div>
-                            <p className="text-xs font-semibold text-gray-900">
-                              {submission.student}
-                            </p>
-
-                            <p className="mt-0.5 text-[10px] text-gray-400">
-                              {submission.studentId}
-                            </p>
-                          </div>
+                  {rosterLoading ? (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-16 text-center">
+                        <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                          <Loader2 size={16} className="animate-spin" />
+                          Loading students…
                         </div>
                       </td>
+                    </tr>
+                  ) : (
+                    filteredRows.map((row) => (
+                      <tr
+                        key={row.id}
+                        className="transition hover:bg-gray-50/60"
+                      >
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="grid h-9 w-9 place-items-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600 text-[10px] font-bold text-white">
+                              {row.initials}
+                            </div>
 
-                      <td className="px-3 py-4 text-xs text-gray-500">
-                        {submission.submittedAt}
-                      </td>
+                            <div>
+                              <p className="text-xs font-semibold text-gray-900">
+                                {row.student}
+                              </p>
 
-                      <td className="px-3 py-4">
-                        <span
-                          className={`rounded-full border px-2.5 py-1 text-[9px] font-semibold ${statusStyles[submission.status]}`}
-                        >
-                          {submission.status}
-                        </span>
-                      </td>
+                              <p className="mt-0.5 text-[10px] text-gray-400">
+                                {row.rollNo}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
 
-                      <td className="px-3 py-4">
-                        {submission.marks !== null ? (
-                          <span className="text-sm font-bold text-gray-800">
-                            {submission.marks}
-                            <span className="text-[10px] font-normal text-gray-400">
-                              /{assignment.totalMarks}
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-300">—</span>
-                        )}
-                      </td>
+                        <td className="px-3 py-4 text-xs text-gray-500">
+                          {row.email || "—"}
+                        </td>
 
-                      <td className="px-5 py-4 text-right">
-                        {submission.status === "Not Submitted" ? (
-                          <button
-                            disabled
-                            className="rounded-xl bg-gray-100 px-3 py-2 text-[10px] font-semibold text-gray-400"
+                        <td className="px-3 py-4">
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-[9px] font-semibold ${statusStyles[row.status]}`}
                           >
-                            No Submission
-                          </button>
-                        ) : (
+                            {row.status}
+                          </span>
+                        </td>
+
+                        <td className="px-3 py-4">
+                          {row.marks !== null ? (
+                            <span className="text-sm font-bold text-gray-800">
+                              {row.marks}
+                              <span className="text-[10px] font-normal text-gray-400">
+                                /{TOTAL_MARKS}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-300">—</span>
+                          )}
+                        </td>
+
+                        <td className="px-5 py-4 text-right">
                           <button
-                            onClick={() => setSelectedSubmission(submission)}
+                            onClick={() => setSelectedRow(row)}
                             className="rounded-xl bg-indigo-50 px-3 py-2 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100"
                           >
-                            {submission.status === "Graded"
-                              ? "View Grade"
-                              : "Review & Grade"}
+                            {row.status === "Graded"
+                              ? "Update Grade"
+                              : "Add Grade"}
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
 
-            {filteredSubmissions.length === 0 && (
+            {!rosterLoading && filteredRows.length === 0 && (
               <div className="px-6 py-16 text-center">
                 <Search className="mx-auto text-gray-300" size={22} />
 
                 <p className="mt-3 text-sm font-semibold text-gray-800">
-                  No submissions found
+                  No students found
                 </p>
 
                 <p className="mt-1 text-xs text-gray-400">
-                  Try another student or status.
+                  {rows.length === 0
+                    ? "No students are enrolled in this course."
+                    : "Try another student or status."}
                 </p>
               </div>
             )}
           </Card>
 
-          {/* Submission stats */}
+          {/* Metrics */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <SmallMetric
-              label="Submitted"
-              value={`${submittedCount}`}
-              description={`of ${assignment.totalStudents} students`}
+              label="Students"
+              value={`${rows.length}`}
+              description="Enrolled in course"
+              icon={<Users size={17} />}
+            />
+
+            <SmallMetric
+              label="Graded"
+              value={`${gradedCount}`}
+              description="Results recorded"
               icon={<CheckCircle2 size={17} />}
             />
 
             <SmallMetric
-              label="Pending Review"
-              value={`${submittedCount - gradedCount}`}
-              description="Submissions to grade"
-              icon={<Clock3 size={17} />}
-            />
-
-            <SmallMetric
-              label="Late"
-              value={`${lateCount}`}
-              description="Submitted after deadline"
+              label="Pending"
+              value={`${pendingCount}`}
+              description="Awaiting a grade"
               icon={<Clock3 size={17} />}
             />
 
             <SmallMetric
               label="Average Marks"
-              value={`${averageMarks}/${assignment.totalMarks}`}
-              description="Across graded work"
+              value={`${averageMarks}/${TOTAL_MARKS}`}
+              description="Across graded students"
               icon={<Award size={17} />}
             />
           </div>
         </>
       )}
 
-      {/* Backend note */}
-      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5">
-        <div className="flex gap-3">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-indigo-600 shadow-sm">
-            <CheckCircle2 size={17} />
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold text-indigo-900">
-              Backend-ready submission workflow
-            </p>
-
-            <p className="mt-1 max-w-4xl text-[11px] leading-5 text-indigo-700/70">
-              Submission records, file metadata, grading, feedback, deadlines,
-              and faculty ownership will later be persisted through FastAPI and
-              PostgreSQL. Actual assignment files should be stored in object
-              storage rather than inside PostgreSQL.
-            </p>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              {[
-                "GET /api/faculty/assignments/{id}",
-                "GET /api/faculty/assignments/{id}/submissions",
-                "GET /api/faculty/submissions/{id}",
-                "PATCH /api/faculty/submissions/{id}/grade",
-                "GET /api/faculty/submissions/{id}/file",
-              ].map((api) => (
-                <code
-                  key={api}
-                  className="rounded-lg bg-white px-2.5 py-1.5 text-[10px] text-indigo-700 shadow-sm"
-                >
-                  {api}
-                </code>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Grading modal */}
-      {selectedSubmission && (
+      {selectedRow && (
         <GradeModal
-          submission={selectedSubmission}
-          totalMarks={assignment.totalMarks}
-          onClose={() => setSelectedSubmission(null)}
+          row={selectedRow}
+          totalMarks={TOTAL_MARKS}
+          onClose={() => setSelectedRow(null)}
           onSave={saveGrade}
         />
       )}
@@ -662,32 +681,30 @@ export default function FacultyAssignmentDetailsPage() {
 }
 
 function GradeModal({
-  submission,
+  row,
   totalMarks,
   onClose,
   onSave,
 }: {
-  submission: Submission;
+  row: GradeRow;
   totalMarks: number;
   onClose: () => void;
-  onSave: (submissionId: string, marks: number, feedback: string) => void;
+  onSave: (studentId: string, marks: number) => void;
 }) {
-  const [marks, setMarks] = useState(submission.marks?.toString() || "");
+  const [marks, setMarks] = useState(row.marks?.toString() || "");
+  const [feedback, setFeedback] = useState("");
 
-  const [feedback, setFeedback] = useState(submission.feedback);
+  const numericMarks = Number(marks);
+  const validMarks =
+    marks.trim() !== "" &&
+    !Number.isNaN(numericMarks) &&
+    numericMarks >= 0 &&
+    numericMarks <= totalMarks;
+  const grade = validMarks ? gradeFromMarks(numericMarks) : null;
 
   const handleSave = () => {
-    const numericMarks = Number(marks);
-
-    if (
-      Number.isNaN(numericMarks) ||
-      numericMarks < 0 ||
-      numericMarks > totalMarks
-    ) {
-      return;
-    }
-
-    onSave(submission.id, numericMarks, feedback);
+    if (!validMarks) return;
+    onSave(row.id, numericMarks);
   };
 
   return (
@@ -696,17 +713,15 @@ function GradeModal({
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600 text-xs font-bold text-white">
-              {submission.initials}
+              {row.initials}
             </div>
 
             <div>
               <h2 className="text-base font-bold text-gray-950">
-                {submission.student}
+                {row.student}
               </h2>
 
-              <p className="mt-0.5 text-[11px] text-gray-400">
-                {submission.studentId} · {submission.submittedAt}
-              </p>
+              <p className="mt-0.5 text-[11px] text-gray-400">{row.rollNo}</p>
             </div>
           </div>
 
@@ -719,32 +734,6 @@ function GradeModal({
         </div>
 
         <div className="space-y-5 p-6">
-          {/* Submitted file */}
-          <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="grid h-10 w-10 place-items-center rounded-xl bg-white text-indigo-600 shadow-sm">
-                  <FileText size={18} />
-                </div>
-
-                <div>
-                  <p className="text-xs font-semibold text-gray-900">
-                    Microservices_Architecture_Report.pdf
-                  </p>
-
-                  <p className="mt-0.5 text-[10px] text-gray-400">
-                    PDF · 4.8 MB
-                  </p>
-                </div>
-              </div>
-
-              <button className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[10px] font-semibold text-gray-600 hover:bg-gray-50">
-                <Download size={14} />
-                Download
-              </button>
-            </div>
-          </div>
-
           {/* Marks */}
           <div>
             <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -767,6 +756,23 @@ function GradeModal({
             </div>
           </div>
 
+          {/* Grade */}
+          <div>
+            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              Grade
+            </label>
+
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-12 min-w-16 items-center justify-center rounded-xl bg-indigo-50 px-4 text-lg font-bold text-indigo-700">
+                {grade ?? "—"}
+              </span>
+
+              <span className="text-sm text-gray-400">
+                Derived from marks
+              </span>
+            </div>
+          </div>
+
           {/* Feedback */}
           <div>
             <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -782,34 +788,6 @@ function GradeModal({
             />
           </div>
 
-          {/* Quick feedback */}
-          <div>
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              Quick Feedback
-            </p>
-
-            <div className="flex flex-wrap gap-2">
-              {[
-                "Strong technical analysis",
-                "Good documentation",
-                "Needs more detail",
-                "Improve architecture diagrams",
-              ].map((item) => (
-                <button
-                  key={item}
-                  onClick={() =>
-                    setFeedback((current) =>
-                      current ? `${current} ${item}.` : `${item}.`,
-                    )
-                  }
-                  className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-[10px] text-gray-500 hover:bg-gray-50"
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
             <div className="flex gap-3">
               <MessageSquare
@@ -818,9 +796,8 @@ function GradeModal({
               />
 
               <p className="text-[11px] leading-5 text-indigo-700/75">
-                Saving this grade will mark the submission as graded. In the
-                production version, the student will receive a notification
-                containing the marks and feedback.
+                Saving this grade records the marks and the derived grade for
+                the student in this course.
               </p>
             </div>
           </div>
@@ -836,7 +813,8 @@ function GradeModal({
 
           <button
             onClick={handleSave}
-            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700"
+            disabled={!validMarks}
+            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
           >
             <Send size={14} />
             Save Grade

@@ -1,1 +1,10 @@
+# Dependencies
+node_modules/
 
+# Local env files
+.env
+.env.local
+
+# Temporary local seed scripts (never commit)
+client/scripts/seed-admin.js
+client/scripts/seed-academic-data.js

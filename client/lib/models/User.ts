@@ -7,6 +7,12 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: "student" | "teacher" | "admin";
+  /**
+   * Department scope for department admins. `null`/missing means the admin is
+   * a super admin (all departments). Existing admins without this field stay
+   * super admins.
+   */
+  assignedDepartment?: Types.ObjectId | null;
   phone?: string;
   photo?: string;
   isActive: boolean;
@@ -31,17 +37,18 @@ const UserSchema = new Schema<IUser>(
       required: true,
       index: true,
     },
+    assignedDepartment: {
+      type: Schema.Types.ObjectId,
+      ref: "Department",
+      default: null,
+      index: true,
+    },
     phone: { type: String, trim: true },
     photo: { type: String, trim: true },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
-
-UserSchema.pre("save", async function (this: IUser): Promise<void> {
-  if (!this.isModified("password")) return;
-  this.password = await bcrypt.hash(this.password, 12);
-});
 
 UserSchema.methods.comparePassword = async function (
   candidate: string

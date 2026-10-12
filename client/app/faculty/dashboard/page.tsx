@@ -10,7 +10,6 @@ import {
   GraduationCap,
   Clock3,
   ArrowUpRight,
-  MoreHorizontal,
   Plus,
   Upload,
   Megaphone,
@@ -21,160 +20,104 @@ import {
   TrendingUp,
   BarChart3,
   UserCheck,
-  MessageSquare,
 } from "lucide-react";
 import Card from "@/components/ui/Card";
+import {
+  api,
+  type AnnouncementDTO,
+  type CourseDTO,
+  type TeacherProfileDTO,
+  type TimetableEntryDTO,
+} from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
 
-const stats = [
-  {
-    label: "Assigned Courses",
-    value: "4",
-    description: "This semester",
-    icon: BookOpen,
-  },
-  {
-    label: "Total Students",
-    value: "186",
-    description: "Across all courses",
-    icon: Users,
-  },
-  {
-    label: "Today's Classes",
-    value: "3",
-    description: "5 hours of teaching",
-    icon: CalendarDays,
-  },
-  {
-    label: "Pending Grading",
-    value: "27",
-    description: "Submissions awaiting review",
-    icon: ClipboardCheck,
-  },
-];
-
-const schedule = [
-  {
-    time: "09:00 AM",
-    end: "10:00 AM",
-    course: "Software Architecture",
-    code: "SE-401",
-    room: "Lab 3",
-    students: 42,
-    type: "Lecture",
-    status: "Next",
-  },
-  {
-    time: "11:00 AM",
-    end: "12:00 PM",
-    course: "Web Engineering",
-    code: "SE-406",
-    room: "Lab 2",
-    students: 48,
-    type: "Practical",
-    status: "Upcoming",
-  },
-  {
-    time: "02:00 PM",
-    end: "03:00 PM",
-    course: "Software Testing",
-    code: "SE-407",
-    room: "B-112",
-    students: 44,
-    type: "Lecture",
-    status: "Upcoming",
-  },
-];
-
-const gradingQueue = [
-  {
-    id: "SUB-1048",
-    assignment: "Microservices Architecture Report",
-    course: "SE-401",
-    students: 12,
-    due: "26 Sep 2026",
-    priority: "High",
-  },
-  {
-    id: "SUB-1043",
-    assignment: "Next.js Full Stack Application",
-    course: "SE-406",
-    students: 8,
-    due: "28 Sep 2026",
-    priority: "Medium",
-  },
-  {
-    id: "SUB-1037",
-    assignment: "Test Automation Project",
-    course: "SE-407",
-    students: 7,
-    due: "30 Sep 2026",
-    priority: "Medium",
-  },
-];
-
-const courses = [
-  {
-    code: "SE-401",
-    name: "Software Architecture",
-    students: 42,
-    attendance: 94,
-    performance: 88,
-    progress: 82,
-  },
-  {
-    code: "SE-406",
-    name: "Web Engineering",
-    students: 48,
-    attendance: 91,
-    performance: 84,
-    progress: 76,
-  },
-  {
-    code: "SE-407",
-    name: "Software Testing",
-    students: 44,
-    attendance: 87,
-    performance: 79,
-    progress: 71,
-  },
-  {
-    code: "SE-408",
-    name: "Distributed Systems",
-    students: 52,
-    attendance: 89,
-    performance: 82,
-    progress: 68,
-  },
-];
-
-const activities = [
-  {
-    text: "12 students submitted Microservices Architecture Report",
-    time: "18 min ago",
-    icon: FileText,
-  },
-  {
-    text: "Attendance recorded for Web Engineering",
-    time: "1 hr ago",
-    icon: UserCheck,
-  },
-  {
-    text: "Ahmed Hassan requested assignment feedback",
-    time: "2 hrs ago",
-    icon: MessageSquare,
-  },
-  {
-    text: "New course resource uploaded to SE-407",
-    time: "Yesterday",
-    icon: Upload,
-  },
-];
+type DashboardData = {
+  me: TeacherProfileDTO;
+  courses: CourseDTO[];
+  studentCounts: number[];
+  timetable: TimetableEntryDTO[];
+  announcements: AnnouncementDTO[];
+};
 
 export default function FacultyDashboardPage() {
   const [showAllActivity, setShowAllActivity] = useState(false);
+  const { data, error } = useApiResource<DashboardData>(async () => {
+    const me = await api.teachers.me();
+    const [courses, timetable, announcements] = await Promise.all([
+      api.courses.list({ teacherId: me.id }),
+      api.timetable.me(),
+      api.announcements.list(),
+    ]);
+    const studentCounts = await Promise.all(
+      courses.map((course) =>
+        api.courses.students(course.id).then((students) => students.length)
+      )
+    );
+    return { me, courses, studentCounts, timetable, announcements };
+  });
+
+  const courses = data?.courses ?? [];
+  const studentCounts = data?.studentCounts ?? [];
+  const totalStudents = studentCounts.reduce((sum, count) => sum + count, 0);
+  const timetable = data?.timetable ?? [];
+  const announcements = data?.announcements ?? [];
+
+  const stats = [
+    {
+      label: "Assigned Courses",
+      value: String(courses.length),
+      description: "This semester",
+      icon: BookOpen,
+    },
+    {
+      label: "Total Students",
+      value: String(totalStudents),
+      description: "Across all courses",
+      icon: Users,
+    },
+    {
+      label: "Scheduled Classes",
+      value: String(timetable.length),
+      description: "Weekly sessions",
+      icon: CalendarDays,
+    },
+    {
+      label: "Pending Grading",
+      value: "—",
+      description: "Not available",
+      icon: ClipboardCheck,
+    },
+  ];
+
+  const schedule = timetable.map((entry, index) => ({
+    time: entry.startTime,
+    end: entry.endTime,
+    course: entry.course?.title ?? "—",
+    code: entry.course?.code ?? "—",
+    room: entry.room,
+    status: index === 0 ? "Next" : "Upcoming",
+  }));
+
+  const coursesOverview = courses.map((course, index) => ({
+    code: course.code,
+    name: course.title,
+    students: studentCounts[index] ?? 0,
+  }));
+
+  const activities = announcements.map((item) => ({
+    text: item.title,
+    time: new Date(item.createdAt).toLocaleDateString(),
+    icon: Megaphone,
+  }));
 
   return (
     <div className="mx-auto max-w-375">
+      {error && (
+        <div className="mb-6 flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <AlertCircle size={16} /> {error}
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
         <div>
@@ -184,15 +127,15 @@ export default function FacultyDashboardPage() {
           </div>
 
           <h1 className="text-3xl font-bold tracking-tight text-gray-950">
-            Good morning, Dr. Ahmed 👋
+            Good morning{data?.me.name ? `, ${data.me.name}` : ""} 👋
           </h1>
 
           <p className="mt-2 max-w-2xl text-sm text-gray-500">
-            Here&apos;s your teaching overview for today. You have{" "}
-            <span className="font-semibold text-gray-700">3 classes</span>{" "}
-            scheduled and{" "}
-            <span className="font-semibold text-gray-700">27 submissions</span>{" "}
-            waiting for review.
+            Here&apos;s your teaching overview. You have{" "}
+            <span className="font-semibold text-gray-700">
+              {timetable.length} scheduled classes
+            </span>{" "}
+            this week.
           </p>
         </div>
 
@@ -222,14 +165,19 @@ export default function FacultyDashboardPage() {
             </div>
 
             <h2 className="max-w-xl text-2xl font-bold tracking-tight lg:text-3xl">
-              Your courses are performing strongly this semester.
+              Your teaching overview for this semester.
             </h2>
 
             <p className="mt-3 max-w-xl text-sm leading-6 text-white/55">
-              Average student performance is{" "}
-              <span className="font-semibold text-white">83%</span>, while
-              overall attendance across your courses is{" "}
-              <span className="font-semibold text-white">90%</span>.
+              You are assigned to{" "}
+              <span className="font-semibold text-white">
+                {courses.length} courses
+              </span>{" "}
+              with{" "}
+              <span className="font-semibold text-white">
+                {totalStudents} enrolled students
+              </span>
+              .
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -237,21 +185,21 @@ export default function FacultyDashboardPage() {
                 <p className="text-[10px] uppercase tracking-wider text-white/35">
                   Avg. Performance
                 </p>
-                <p className="mt-1 text-xl font-bold">83%</p>
+                <p className="mt-1 text-xl font-bold">—</p>
               </div>
 
               <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                 <p className="text-[10px] uppercase tracking-wider text-white/35">
                   Attendance
                 </p>
-                <p className="mt-1 text-xl font-bold">90%</p>
+                <p className="mt-1 text-xl font-bold">—</p>
               </div>
 
               <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                 <p className="text-[10px] uppercase tracking-wider text-white/35">
                   Course Progress
                 </p>
-                <p className="mt-1 text-xl font-bold">74%</p>
+                <p className="mt-1 text-xl font-bold">—</p>
               </div>
             </div>
           </div>
@@ -262,7 +210,9 @@ export default function FacultyDashboardPage() {
                 <p className="text-xs font-medium text-white/50">
                   Today&apos;s workload
                 </p>
-                <p className="mt-1 text-2xl font-bold">5h 00m</p>
+                <p className="mt-1 text-2xl font-bold">
+                  {timetable.length} classes
+                </p>
               </div>
 
               <div className="grid h-11 w-11 place-items-center rounded-xl bg-indigo-500/20 text-indigo-300">
@@ -271,28 +221,28 @@ export default function FacultyDashboardPage() {
             </div>
 
             <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full w-[62%] rounded-full bg-indigo-400" />
+              <div className="h-full w-0 rounded-full bg-indigo-400" />
             </div>
 
             <div className="mt-2 flex justify-between text-[10px] text-white/35">
               <span>Teaching load</span>
-              <span>62%</span>
+              <span>—</span>
             </div>
 
             <div className="mt-5 grid grid-cols-3 gap-2">
               <div className="rounded-xl bg-white/5 p-3">
                 <p className="text-[9px] text-white/35">Classes</p>
-                <p className="mt-1 font-semibold">3</p>
+                <p className="mt-1 font-semibold">{timetable.length}</p>
               </div>
 
               <div className="rounded-xl bg-white/5 p-3">
                 <p className="text-[9px] text-white/35">Students</p>
-                <p className="mt-1 font-semibold">134</p>
+                <p className="mt-1 font-semibold">{totalStudents}</p>
               </div>
 
               <div className="rounded-xl bg-white/5 p-3">
                 <p className="text-[9px] text-white/35">Tasks</p>
-                <p className="mt-1 font-semibold">9</p>
+                <p className="mt-1 font-semibold">—</p>
               </div>
             </div>
           </div>
@@ -340,7 +290,12 @@ export default function FacultyDashboardPage() {
                 Today&apos;s Schedule
               </h2>
               <p className="mt-1 text-xs text-gray-400">
-                Monday, 21 September 2026
+                {new Date().toLocaleDateString(undefined, {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
               </p>
             </div>
 
@@ -385,8 +340,6 @@ export default function FacultyDashboardPage() {
                     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-400">
                       <span>{item.code}</span>
                       <span>{item.room}</span>
-                      <span>{item.students} students</span>
-                      <span>{item.type}</span>
                     </div>
                   </div>
 
@@ -417,10 +370,8 @@ export default function FacultyDashboardPage() {
             </div>
 
             <p className="mt-5 text-sm leading-6 text-white/80">
-              Software Testing has the lowest average performance at{" "}
-              <span className="font-semibold text-white">79%</span>. Students
-              may benefit from an additional practical session before the next
-              assessment.
+              Performance insights will appear here once assessment data is
+              available for your courses.
             </p>
 
             <button className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50">
@@ -459,89 +410,8 @@ export default function FacultyDashboardPage() {
         </Card>
       </div>
 
-      {/* Lower grid */}
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-        {/* Grading Queue */}
-        <Card className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-gray-100 p-6">
-            <div>
-              <h2 className="font-semibold text-gray-950">Grading Queue</h2>
-              <p className="mt-1 text-xs text-gray-400">
-                Submissions requiring your attention.
-              </p>
-            </div>
-
-            <div className="rounded-full bg-amber-50 px-3 py-1 text-[10px] font-semibold text-amber-600">
-              27 Pending
-            </div>
-          </div>
-
-          <div className="divide-y divide-gray-100">
-            {gradingQueue.map((item) => (
-              <div key={item.id} className="p-5">
-                <div className="flex items-start gap-4">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
-                    <FileText size={17} />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-semibold text-gray-900">
-                        {item.assignment}
-                      </h3>
-
-                      <span
-                        className={[
-                          "rounded-full px-2 py-0.5 text-[9px] font-bold",
-                          item.priority === "High"
-                            ? "bg-red-50 text-red-600"
-                            : "bg-amber-50 text-amber-600",
-                        ].join(" ")}
-                      >
-                        {item.priority}
-                      </span>
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-gray-400">
-                      <span>{item.course}</span>
-                      <span>{item.students} submissions</span>
-                      <span>Due {item.due}</span>
-                    </div>
-                  </div>
-
-                  <button className="shrink-0 rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
-                    <MoreHorizontal size={17} />
-                  </button>
-                </div>
-
-                <div className="mt-4 flex items-center justify-between">
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full bg-indigo-500"
-                      style={{
-                        width: `${Math.min(item.students * 7, 100)}%`,
-                      }}
-                    />
-                  </div>
-
-                  <button className="ml-4 inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600">
-                    Review
-                    <ChevronRight size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="border-t border-gray-100 p-4">
-            <button className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-50 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-100">
-              View all submissions
-              <ArrowUpRight size={14} />
-            </button>
-          </div>
-        </Card>
-
-        {/* Course Performance */}
+      {/* Course Performance */}
+      <div className="mt-6 grid gap-6">
         <Card className="overflow-hidden">
           <div className="border-b border-gray-100 p-6">
             <div className="flex items-center justify-between">
@@ -559,7 +429,7 @@ export default function FacultyDashboardPage() {
           </div>
 
           <div className="divide-y divide-gray-100">
-            {courses.map((course) => (
+            {coursesOverview.map((course) => (
               <div key={course.code} className="p-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -576,42 +446,14 @@ export default function FacultyDashboardPage() {
                     {course.students} students
                   </span>
                 </div>
-
-                <div className="mt-4 space-y-3">
-                  <div>
-                    <div className="mb-1 flex justify-between text-[10px]">
-                      <span className="text-gray-400">Performance</span>
-                      <span className="font-semibold text-gray-700">
-                        {course.performance}%
-                      </span>
-                    </div>
-
-                    <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
-                      <div
-                        className="h-full rounded-full bg-indigo-500"
-                        style={{ width: `${course.performance}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="mb-1 flex justify-between text-[10px]">
-                      <span className="text-gray-400">Attendance</span>
-                      <span className="font-semibold text-gray-700">
-                        {course.attendance}%
-                      </span>
-                    </div>
-
-                    <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
-                      <div
-                        className="h-full rounded-full bg-emerald-500"
-                        style={{ width: `${course.attendance}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
               </div>
             ))}
+
+            {coursesOverview.length === 0 && (
+              <div className="p-5 text-center text-xs text-gray-400">
+                No courses assigned yet.
+              </div>
+            )}
           </div>
         </Card>
       </div>

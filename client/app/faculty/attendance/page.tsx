@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
   CalendarDays,
   Check,
   CheckCircle2,
   ClipboardCheck,
-  Clock3,
   Download,
+  Loader2,
   Search,
   UserCheck,
   UserX,
@@ -16,186 +17,175 @@ import {
 } from "lucide-react";
 
 import Card from "@/components/ui/Card";
+import {
+  api,
+  ApiError,
+  type AttendanceStatus,
+  type CourseDTO,
+  type CourseStudentDTO,
+  type TeacherProfileDTO,
+} from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
 
-type AttendanceStatus = "Present" | "Absent" | "Late";
-
-type StudentAttendance = {
-  id: string;
-  name: string;
-  studentId: string;
-  initials: string;
-  status: AttendanceStatus;
-  attendance: number;
-  lastAttendance: string;
+type RosterData = {
+  me: TeacherProfileDTO;
+  courses: CourseDTO[];
 };
 
-const initialStudents: StudentAttendance[] = [
-  {
-    id: "std-001",
-    name: "Ahmed Hassan",
-    studentId: "SE-2022-041",
-    initials: "AH",
-    status: "Present",
-    attendance: 98,
-    lastAttendance: "Present · Sep 23",
-  },
-  {
-    id: "std-002",
-    name: "Ayesha Malik",
-    studentId: "SE-2022-057",
-    initials: "AM",
-    status: "Present",
-    attendance: 94,
-    lastAttendance: "Present · Sep 23",
-  },
-  {
-    id: "std-003",
-    name: "Hamza Ali",
-    studentId: "SE-2022-063",
-    initials: "HA",
-    status: "Late",
-    attendance: 82,
-    lastAttendance: "Late · Sep 23",
-  },
-  {
-    id: "std-004",
-    name: "Fatima Noor",
-    studentId: "SE-2022-071",
-    initials: "FN",
-    status: "Present",
-    attendance: 91,
-    lastAttendance: "Present · Sep 23",
-  },
-  {
-    id: "std-005",
-    name: "Usman Tariq",
-    studentId: "SE-2022-084",
-    initials: "UT",
-    status: "Absent",
-    attendance: 76,
-    lastAttendance: "Absent · Sep 23",
-  },
-  {
-    id: "std-006",
-    name: "Maham Khan",
-    studentId: "SE-2022-091",
-    initials: "MK",
-    status: "Present",
-    attendance: 89,
-    lastAttendance: "Present · Sep 23",
-  },
-  {
-    id: "std-007",
-    name: "Bilal Ahmed",
-    studentId: "SE-2022-103",
-    initials: "BA",
-    status: "Absent",
-    attendance: 71,
-    lastAttendance: "Absent · Sep 23",
-  },
-  {
-    id: "std-008",
-    name: "Hira Shah",
-    studentId: "SE-2022-118",
-    initials: "HS",
-    status: "Present",
-    attendance: 96,
-    lastAttendance: "Present · Sep 23",
-  },
-  {
-    id: "std-009",
-    name: "Zainab Iqbal",
-    studentId: "SE-2022-124",
-    initials: "ZI",
-    status: "Present",
-    attendance: 93,
-    lastAttendance: "Present · Sep 23",
-  },
-  {
-    id: "std-010",
-    name: "Danish Raza",
-    studentId: "SE-2022-137",
-    initials: "DR",
-    status: "Present",
-    attendance: 87,
-    lastAttendance: "Present · Sep 23",
-  },
-];
-
-const statusStyles: Record<AttendanceStatus, string> = {
-  Present: "bg-emerald-50 text-emerald-700 border-emerald-100",
-  Absent: "bg-rose-50 text-rose-700 border-rose-100",
-  Late: "bg-amber-50 text-amber-700 border-amber-100",
+type Roster = {
+  key: string;
+  students: CourseStudentDTO[];
+  marks: Record<string, AttendanceStatus>;
 };
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
 
 export default function FacultyAttendancePage() {
-  const [students, setStudents] =
-    useState<StudentAttendance[]>(initialStudents);
+  const { data, error } = useApiResource<RosterData>(async () => {
+    const me = await api.teachers.me();
+    const courses = await api.courses.list({ teacherId: me.id });
+    return { me, courses };
+  });
 
-  const [search, setSearch] = useState("");
-  const [course, setCourse] = useState("SE-401 · Software Architecture");
+  const courses = data?.courses ?? [];
+
+  const [courseId, setCourseId] = useState("");
   const [date, setDate] = useState("2026-09-24");
   const [session, setSession] = useState("09:00 AM – 10:00 AM");
+  const [search, setSearch] = useState("");
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [roster, setRoster] = useState<Roster | null>(null);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+
+  const selectedCourseId = courseId || courses[0]?.id || "";
+  const selectedCourse = courses.find((course) => course.id === selectedCourseId);
+  const courseLabel = selectedCourse
+    ? `${selectedCourse.code} · ${selectedCourse.title}`
+    : "—";
+  const rosterKey = selectedCourseId ? `${selectedCourseId}|${date}` : "";
+
+  useEffect(() => {
+    if (!selectedCourseId) return;
+
+    let active = true;
+
+    (async () => {
+      try {
+        const [students, attendance] = await Promise.all([
+          api.courses.students(selectedCourseId),
+          api.attendance.byCourse(selectedCourseId, date),
+        ]);
+
+        if (!active) return;
+
+        const marks: Record<string, AttendanceStatus> = {};
+        for (const student of students) marks[student.id] = "present";
+        for (const record of attendance) {
+          if (record.studentId in marks) marks[record.studentId] = record.status;
+        }
+
+        setRoster({ key: `${selectedCourseId}|${date}`, students, marks });
+        setRosterError(null);
+        setSaved(false);
+      } catch (e) {
+        if (active) {
+          setRosterError(
+            e instanceof ApiError ? e.message : "Failed to load attendance",
+          );
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedCourseId, date, rosterKey]);
+
+  const rosterReady = roster !== null && roster.key === rosterKey;
+  const rosterLoading = Boolean(rosterKey) && !rosterReady;
+  const students = rosterReady ? roster.students : [];
+  const marks = rosterReady ? roster.marks : {};
 
   const filteredStudents = useMemo(() => {
-    return students.filter(
+    if (!rosterReady || !roster) return [];
+    const query = search.trim().toLowerCase();
+    if (!query) return roster.students;
+    return roster.students.filter(
       (student) =>
-        student.name.toLowerCase().includes(search.toLowerCase()) ||
-        student.studentId.toLowerCase().includes(search.toLowerCase()),
+        student.name.toLowerCase().includes(query) ||
+        student.rollNo.toLowerCase().includes(query),
     );
-  }, [students, search]);
+  }, [roster, rosterReady, search]);
 
   const presentCount = students.filter(
-    (student) => student.status === "Present",
+    (student) => marks[student.id] === "present",
   ).length;
 
   const absentCount = students.filter(
-    (student) => student.status === "Absent",
+    (student) => marks[student.id] === "absent",
   ).length;
 
-  const lateCount = students.filter(
-    (student) => student.status === "Late",
-  ).length;
-
-  const attendanceRate = Math.round(
-    ((presentCount + lateCount) / students.length) * 100,
-  );
+  const attendanceRate = students.length
+    ? Math.round((presentCount / students.length) * 100)
+    : 0;
 
   const setAttendance = (studentId: string, status: AttendanceStatus) => {
-    setStudents((current) =>
-      current.map((student) =>
-        student.id === studentId ? { ...student, status } : student,
-      ),
+    setRoster((current) =>
+      current && current.key === rosterKey
+        ? { ...current, marks: { ...current.marks, [studentId]: status } }
+        : current,
     );
 
     setSaved(false);
   };
 
-  const markAllPresent = () => {
-    setStudents((current) =>
-      current.map((student) => ({
-        ...student,
-        status: "Present",
-      })),
+  const markAll = (status: AttendanceStatus) => {
+    setRoster((current) =>
+      current && current.key === rosterKey
+        ? {
+            ...current,
+            marks: Object.fromEntries(
+              current.students.map((student) => [student.id, status]),
+            ),
+          }
+        : current,
     );
 
     setSaved(false);
   };
 
-  const markAllAbsent = () => {
-    setStudents((current) =>
-      current.map((student) => ({
-        ...student,
-        status: "Absent",
-      })),
-    );
+  const saveAttendance = async () => {
+    if (!rosterReady || students.length === 0) return;
 
-    setSaved(false);
-  };
+    setSaving(true);
+    setRosterError(null);
 
-  const saveAttendance = () => {
-    setSaved(true);
+    try {
+      await api.attendance.save({
+        courseId: selectedCourseId,
+        date,
+        records: students.map((student) => ({
+          studentId: student.id,
+          status: marks[student.id],
+        })),
+      });
+
+      setSaved(true);
+    } catch (e) {
+      setRosterError(
+        e instanceof ApiError ? e.message : "Failed to save attendance",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -226,13 +216,28 @@ export default function FacultyAttendancePage() {
 
           <button
             onClick={saveAttendance}
-            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-700"
+            disabled={saving || !rosterReady}
+            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-700 disabled:opacity-50"
           >
             {saved ? <Check size={16} /> : <ClipboardCheck size={16} />}
             {saved ? "Attendance Saved" : "Save Attendance"}
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <AlertCircle size={16} />
+          {error}
+        </div>
+      )}
+
+      {rosterError && (
+        <div className="flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <AlertCircle size={16} />
+          {rosterError}
+        </div>
+      )}
 
       {/* Course / Session selector */}
       <Card className="p-5">
@@ -243,14 +248,19 @@ export default function FacultyAttendancePage() {
             </label>
 
             <select
-              value={course}
-              onChange={(e) => setCourse(e.target.value)}
+              value={selectedCourseId}
+              onChange={(e) => {
+                setCourseId(e.target.value);
+                setSaved(false);
+              }}
               className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 outline-none focus:border-indigo-400"
             >
-              <option>SE-401 · Software Architecture</option>
-              <option>SE-406 · Web Engineering</option>
-              <option>SE-407 · Software Testing</option>
-              <option>SE-408 · Distributed Systems</option>
+              {courses.length === 0 && <option value="">No courses</option>}
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.code} · {course.title}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -296,7 +306,7 @@ export default function FacultyAttendancePage() {
       </Card>
 
       {/* Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <AttendanceStat
           label="Total Students"
           value={students.length.toString()}
@@ -322,14 +332,6 @@ export default function FacultyAttendancePage() {
         />
 
         <AttendanceStat
-          label="Late"
-          value={lateCount.toString()}
-          description="Arrived late"
-          icon={<Clock3 size={18} />}
-          iconClass="bg-amber-50 text-amber-600"
-        />
-
-        <AttendanceStat
           label="Session Rate"
           value={`${attendanceRate}%`}
           description="Current attendance"
@@ -349,7 +351,7 @@ export default function FacultyAttendancePage() {
               </h2>
 
               <p className="mt-1 text-xs text-gray-400">
-                {course} · {date} · {session}
+                {courseLabel} · {date} · {session}
               </p>
             </div>
 
@@ -366,7 +368,7 @@ export default function FacultyAttendancePage() {
               </div>
 
               <button
-                onClick={markAllPresent}
+                onClick={() => markAll("present")}
                 className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
               >
                 <CheckCircle2 size={15} />
@@ -386,11 +388,11 @@ export default function FacultyAttendancePage() {
                 </th>
 
                 <th className="px-3 py-3.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                  Overall Attendance
+                  Roll No
                 </th>
 
                 <th className="px-3 py-3.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                  Last Record
+                  Department
                 </th>
 
                 <th className="px-3 py-3.5 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -400,77 +402,79 @@ export default function FacultyAttendancePage() {
             </thead>
 
             <tbody className="divide-y divide-gray-100">
-              {filteredStudents.map((student) => (
-                <tr key={student.id} className="transition hover:bg-gray-50/60">
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="grid h-10 w-10 place-items-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600 text-xs font-bold text-white">
-                        {student.initials}
-                      </div>
-
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">
-                          {student.name}
-                        </p>
-
-                        <p className="mt-0.5 text-[11px] text-gray-400">
-                          {student.studentId}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="px-3 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-100">
-                        <div
-                          className="h-full rounded-full bg-indigo-500"
-                          style={{ width: `${student.attendance}%` }}
-                        />
-                      </div>
-
-                      <span className="text-xs font-semibold text-gray-700">
-                        {student.attendance}%
-                      </span>
-                    </div>
-                  </td>
-
-                  <td className="px-3 py-4">
-                    <span className="text-xs text-gray-500">
-                      {student.lastAttendance}
-                    </span>
-                  </td>
-
-                  <td className="px-3 py-4">
-                    <div className="flex justify-center gap-2">
-                      <AttendanceButton
-                        label="Present"
-                        active={student.status === "Present"}
-                        type="present"
-                        onClick={() => setAttendance(student.id, "Present")}
-                      />
-
-                      <AttendanceButton
-                        label="Late"
-                        active={student.status === "Late"}
-                        type="late"
-                        onClick={() => setAttendance(student.id, "Late")}
-                      />
-
-                      <AttendanceButton
-                        label="Absent"
-                        active={student.status === "Absent"}
-                        type="absent"
-                        onClick={() => setAttendance(student.id, "Absent")}
-                      />
+              {rosterLoading ? (
+                <tr>
+                  <td colSpan={4} className="px-5 py-16 text-center">
+                    <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                      <Loader2 size={16} className="animate-spin" />
+                      Loading students…
                     </div>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredStudents.map((student) => {
+                  const status = marks[student.id];
+
+                  return (
+                    <tr
+                      key={student.id}
+                      className="transition hover:bg-gray-50/60"
+                    >
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="grid h-10 w-10 place-items-center rounded-full bg-linear-to-br from-indigo-500 to-violet-600 text-xs font-bold text-white">
+                            {initials(student.name)}
+                          </div>
+
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {student.name}
+                            </p>
+
+                            <p className="mt-0.5 text-[11px] text-gray-400">
+                              {student.email || "—"}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-3 py-4">
+                        <span className="text-xs font-semibold text-gray-700">
+                          {student.rollNo}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-4">
+                        <span className="text-xs text-gray-500">
+                          {student.department || "—"}
+                        </span>
+                      </td>
+
+                      <td className="px-3 py-4">
+                        <div className="flex justify-center gap-2">
+                          <AttendanceButton
+                            label="Present"
+                            active={status === "present"}
+                            type="present"
+                            onClick={() => setAttendance(student.id, "present")}
+                          />
+
+                          <AttendanceButton
+                            label="Absent"
+                            active={status === "absent"}
+                            type="absent"
+                            onClick={() => setAttendance(student.id, "absent")}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
 
-          {filteredStudents.length === 0 && (
+          {!rosterLoading && filteredStudents.length === 0 && (
             <div className="px-6 py-16 text-center">
               <Search className="mx-auto text-gray-300" size={22} />
 
@@ -479,7 +483,9 @@ export default function FacultyAttendancePage() {
               </p>
 
               <p className="mt-1 text-xs text-gray-400">
-                Try another student name or ID.
+                {students.length === 0
+                  ? "No students are enrolled in this course."
+                  : "Try another student name or roll number."}
               </p>
             </div>
           )}
@@ -491,16 +497,13 @@ export default function FacultyAttendancePage() {
             <div className="h-2 w-2 rounded-full bg-emerald-500" />
             <span>{presentCount} Present</span>
 
-            <div className="ml-2 h-2 w-2 rounded-full bg-amber-500" />
-            <span>{lateCount} Late</span>
-
             <div className="ml-2 h-2 w-2 rounded-full bg-rose-500" />
             <span>{absentCount} Absent</span>
           </div>
 
           <div className="flex gap-2">
             <button
-              onClick={markAllAbsent}
+              onClick={() => markAll("absent")}
               className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
             >
               Mark All Absent
@@ -508,7 +511,8 @@ export default function FacultyAttendancePage() {
 
             <button
               onClick={saveAttendance}
-              className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+              disabled={saving || !rosterReady}
+              className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
             >
               Save Session
             </button>
@@ -540,38 +544,24 @@ export default function FacultyAttendancePage() {
               <div
                 className="bg-emerald-500"
                 style={{
-                  width: `${(presentCount / students.length) * 100}%`,
-                }}
-              />
-
-              <div
-                className="bg-amber-400"
-                style={{
-                  width: `${(lateCount / students.length) * 100}%`,
+                  width: `${students.length ? (presentCount / students.length) * 100 : 0}%`,
                 }}
               />
 
               <div
                 className="bg-rose-400"
                 style={{
-                  width: `${(absentCount / students.length) * 100}%`,
+                  width: `${students.length ? (absentCount / students.length) * 100 : 0}%`,
                 }}
               />
             </div>
 
-            <div className="mt-5 grid grid-cols-3 gap-4">
+            <div className="mt-5 grid grid-cols-2 gap-4">
               <Breakdown
                 label="Present"
                 value={presentCount}
                 total={students.length}
                 dot="bg-emerald-500"
-              />
-
-              <Breakdown
-                label="Late"
-                value={lateCount}
-                total={students.length}
-                dot="bg-amber-400"
               />
 
               <Breakdown
@@ -587,7 +577,7 @@ export default function FacultyAttendancePage() {
         <Card className="p-6">
           <div className="flex items-center gap-3">
             <div className="grid h-9 w-9 place-items-center rounded-xl bg-amber-50 text-amber-600">
-              <Clock3 size={17} />
+              <ClipboardCheck size={17} />
             </div>
 
             <div>
@@ -608,11 +598,6 @@ export default function FacultyAttendancePage() {
             />
 
             <Note
-              icon={<Clock3 size={14} />}
-              text="Late students remain recorded as attending the session."
-            />
-
-            <Note
               icon={<X size={14} />}
               text="Absent students are excluded from the session attendance."
             />
@@ -629,31 +614,13 @@ export default function FacultyAttendancePage() {
 
           <div>
             <p className="text-xs font-semibold text-indigo-900">
-              Backend-ready attendance architecture
+              Attendance records workspace
             </p>
 
             <p className="mt-1 max-w-4xl text-[11px] leading-5 text-indigo-700/70">
-              The current interface uses local state for the prototype. During
-              backend integration, attendance sessions and student records will
-              be loaded and persisted through FastAPI and PostgreSQL.
+              Attendance sessions and student records are loaded and persisted
+              through the university API.
             </p>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              {[
-                "GET /api/faculty/attendance",
-                "GET /api/faculty/attendance/session/{id}",
-                "POST /api/faculty/attendance/session",
-                "PATCH /api/faculty/attendance/{id}",
-                "GET /api/faculty/attendance/course/{course_id}",
-              ].map((api) => (
-                <code
-                  key={api}
-                  className="rounded-lg bg-white px-2.5 py-1.5 text-[10px] text-indigo-700 shadow-sm"
-                >
-                  {api}
-                </code>
-              ))}
-            </div>
           </div>
         </div>
       </div>
@@ -705,7 +672,7 @@ function AttendanceButton({
 }: {
   label: string;
   active: boolean;
-  type: "present" | "late" | "absent";
+  type: AttendanceStatus;
   onClick: () => void;
 }) {
   const base =
@@ -714,9 +681,7 @@ function AttendanceButton({
   const activeClasses =
     type === "present"
       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : type === "late"
-        ? "border-amber-200 bg-amber-50 text-amber-700"
-        : "border-rose-200 bg-rose-50 text-rose-700";
+      : "border-rose-200 bg-rose-50 text-rose-700";
 
   const inactiveClasses =
     "border-gray-200 bg-white text-gray-400 hover:border-gray-300 hover:text-gray-600";
@@ -752,7 +717,7 @@ function Breakdown({
       <p className="mt-2 text-lg font-bold text-gray-900">{value}</p>
 
       <p className="text-[10px] text-gray-400">
-        {Math.round((value / total) * 100)}% of class
+        {total ? Math.round((value / total) * 100) : 0}% of class
       </p>
     </div>
   );

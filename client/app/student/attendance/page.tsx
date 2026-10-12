@@ -3,117 +3,25 @@
 import AppShell from "@/components/layout/AppShell";
 import Card from "@/components/ui/Card";
 import {
+  AlertCircle,
+  AlertTriangle,
   CalendarCheck2,
   CheckCircle2,
   Clock3,
-  XCircle,
-  AlertTriangle,
+  Loader2,
   TrendingUp,
+  XCircle,
 } from "lucide-react";
 
-const attendanceData = [
-  {
-    code: "SE-401",
-    name: "Software Architecture",
-    instructor: "Dr. Ahmed Khan",
-    attended: 17,
-    total: 18,
-    percentage: 94,
-    status: "Good",
-  },
-  {
-    code: "AI-402",
-    name: "Artificial Intelligence",
-    instructor: "Dr. Sara Malik",
-    attended: 16,
-    total: 18,
-    percentage: 89,
-    status: "Good",
-  },
-  {
-    code: "CS-405",
-    name: "Cyber Security",
-    instructor: "Prof. Hassan Raza",
-    attended: 17,
-    total: 18,
-    percentage: 94,
-    status: "Good",
-  },
-  {
-    code: "SE-406",
-    name: "Web Engineering",
-    instructor: "Dr. Ali Hassan",
-    attended: 16,
-    total: 18,
-    percentage: 89,
-    status: "Good",
-  },
-  {
-    code: "SE-407",
-    name: "Software Testing",
-    instructor: "Dr. Usman Tariq",
-    attended: 15,
-    total: 18,
-    percentage: 83,
-    status: "Warning",
-  },
-  {
-    code: "DS-408",
-    name: "Distributed Systems",
-    instructor: "Dr. Hamza Ahmed",
-    attended: 15,
-    total: 18,
-    percentage: 83,
-    status: "Warning",
-  },
-];
-
-const recentRecords = [
-  {
-    date: "24 Sep 2026",
-    day: "Thursday",
-    course: "SE-401",
-    name: "Software Architecture",
-    status: "Present",
-  },
-  {
-    date: "24 Sep 2026",
-    day: "Thursday",
-    course: "AI-402",
-    name: "Artificial Intelligence",
-    status: "Present",
-  },
-  {
-    date: "23 Sep 2026",
-    day: "Wednesday",
-    course: "CS-405",
-    name: "Cyber Security",
-    status: "Present",
-  },
-  {
-    date: "23 Sep 2026",
-    day: "Wednesday",
-    course: "SE-407",
-    name: "Software Testing",
-    status: "Absent",
-  },
-  {
-    date: "22 Sep 2026",
-    day: "Tuesday",
-    course: "SE-406",
-    name: "Web Engineering",
-    status: "Late",
-  },
-  {
-    date: "22 Sep 2026",
-    day: "Tuesday",
-    course: "DS-408",
-    name: "Distributed Systems",
-    status: "Present",
-  },
-];
+import { api, type StudentAttendanceSummaryDTO } from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
+import { MIN_ATTENDANCE_PERCENTAGE } from "@/lib/constants";
 
 function getProgressClass(percentage: number) {
+  if (percentage < MIN_ATTENDANCE_PERCENTAGE) {
+    return "bg-red-500";
+  }
+
   if (percentage >= 90) {
     return "bg-emerald-500";
   }
@@ -125,26 +33,36 @@ function getProgressClass(percentage: number) {
   return "bg-amber-500";
 }
 
-function getStatusClass(status: string) {
-  if (status === "Good") {
-    return "bg-emerald-50 text-emerald-600";
+function getStatusClass(belowThreshold: boolean) {
+  if (belowThreshold) {
+    return "bg-red-50 text-red-600";
   }
 
-  return "bg-amber-50 text-amber-600";
+  return "bg-emerald-50 text-emerald-600";
 }
 
 export default function AttendancePage() {
-  const totalAttended = attendanceData.reduce(
-    (sum, course) => sum + course.attended,
+  const { data, loading, error } = useApiResource<
+    StudentAttendanceSummaryDTO[]
+  >(async () => {
+    const me = await api.students.me();
+    return api.attendance.byStudent(me.id);
+  });
+
+  const courses = data ?? [];
+
+  const totalAttended = courses.reduce(
+    (sum, course) => sum + course.present,
     0,
   );
 
-  const totalClasses = attendanceData.reduce(
-    (sum, course) => sum + course.total,
-    0,
-  );
+  const totalClasses = courses.reduce((sum, course) => sum + course.total, 0);
 
-  const overallPercentage = Math.round((totalAttended / totalClasses) * 100);
+  const overallPercentage = totalClasses
+    ? Math.round((totalAttended / totalClasses) * 100)
+    : 0;
+
+  const meetsMinimum = overallPercentage >= MIN_ATTENDANCE_PERCENTAGE;
 
   return (
     <AppShell>
@@ -179,8 +97,14 @@ export default function AttendancePage() {
                   {overallPercentage}%
                 </p>
 
-                <p className="mt-2 text-[11px] text-emerald-600">
-                  Above minimum requirement
+                <p
+                  className={`mt-2 text-[11px] ${
+                    meetsMinimum ? "text-emerald-600" : "text-red-500"
+                  }`}
+                >
+                  {meetsMinimum
+                    ? "Above minimum requirement"
+                    : "Below minimum requirement"}
                 </p>
               </div>
 
@@ -244,7 +168,9 @@ export default function AttendancePage() {
                   Required Minimum
                 </p>
 
-                <p className="mt-2 text-3xl font-bold text-gray-950">75%</p>
+                <p className="mt-2 text-3xl font-bold text-gray-950">
+                  {MIN_ATTENDANCE_PERCENTAGE}%
+                </p>
 
                 <p className="mt-2 text-[11px] text-gray-400">
                   University attendance policy
@@ -270,99 +196,107 @@ export default function AttendancePage() {
             </p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-212.5">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/70 text-left">
-                  <th className="px-6 py-4 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                    Course
-                  </th>
+          {loading ? (
+            <div className="flex items-center gap-2 px-6 py-8 text-sm text-gray-500">
+              <Loader2 size={16} className="animate-spin" /> Loading attendance…
+            </div>
+          ) : error ? (
+            <div className="flex items-center gap-2 px-6 py-8 text-sm text-red-600">
+              <AlertCircle size={16} /> {error}
+            </div>
+          ) : courses.length === 0 ? (
+            <div className="px-6 py-12 text-center text-sm text-gray-500">
+              No attendance records yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-212.5">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50/70 text-left">
+                    <th className="px-6 py-4 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      Course
+                    </th>
 
-                  <th className="px-6 py-4 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                    Instructor
-                  </th>
+                    <th className="px-6 py-4 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      Classes
+                    </th>
 
-                  <th className="px-6 py-4 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                    Classes
-                  </th>
+                    <th className="px-6 py-4 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      Attendance
+                    </th>
 
-                  <th className="px-6 py-4 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                    Attendance
-                  </th>
-
-                  <th className="px-6 py-4 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-gray-100">
-                {attendanceData.map((course) => (
-                  <tr key={course.code} className="transition hover:bg-gray-50">
-                    {/* Course */}
-                    <td className="px-6 py-5">
-                      <div className="flex items-center gap-3">
-                        <div className="grid h-9 w-9 place-items-center rounded-lg bg-indigo-50 text-[10px] font-bold text-indigo-600">
-                          {course.code.split("-")[0]}
-                        </div>
-
-                        <div>
-                          <p className="text-sm font-bold text-gray-900">
-                            {course.name}
-                          </p>
-
-                          <p className="mt-0.5 text-[11px] font-medium text-gray-400">
-                            {course.code}
-                          </p>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Instructor */}
-                    <td className="px-6 py-5 text-xs text-gray-500">
-                      {course.instructor}
-                    </td>
-
-                    {/* Classes */}
-                    <td className="px-6 py-5 text-center text-sm font-semibold text-gray-700">
-                      {course.attended}/{course.total}
-                    </td>
-
-                    {/* Progress */}
-                    <td className="px-6 py-5">
-                      <div className="flex items-center gap-3">
-                        <div className="h-2 min-w-32.5 flex-1 overflow-hidden rounded-full bg-gray-100">
-                          <div
-                            className={`h-full rounded-full ${getProgressClass(
-                              course.percentage,
-                            )}`}
-                            style={{
-                              width: `${course.percentage}%`,
-                            }}
-                          />
-                        </div>
-
-                        <span className="w-10 text-right text-xs font-bold text-gray-700">
-                          {course.percentage}%
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* Status */}
-                    <td className="px-6 py-5 text-center">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1.5 text-[10px] font-semibold ${getStatusClass(
-                          course.status,
-                        )}`}
-                      >
-                        {course.status}
-                      </span>
-                    </td>
+                    <th className="px-6 py-4 text-center text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                      Status
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+
+                <tbody className="divide-y divide-gray-100">
+                  {courses.map((course) => (
+                    <tr
+                      key={course.courseId}
+                      className="transition hover:bg-gray-50"
+                    >
+                      {/* Course */}
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-3">
+                          <div className="grid h-9 w-9 place-items-center rounded-lg bg-indigo-50 text-[10px] font-bold text-indigo-600">
+                            {course.course.code.split("-")[0]}
+                          </div>
+
+                          <div>
+                            <p className="text-sm font-bold text-gray-900">
+                              {course.course.title}
+                            </p>
+
+                            <p className="mt-0.5 text-[11px] font-medium text-gray-400">
+                              {course.course.code}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Classes */}
+                      <td className="px-6 py-5 text-center text-sm font-semibold text-gray-700">
+                        {course.present}/{course.total}
+                      </td>
+
+                      {/* Progress */}
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-3">
+                          <div className="h-2 min-w-32.5 flex-1 overflow-hidden rounded-full bg-gray-100">
+                            <div
+                              className={`h-full rounded-full ${getProgressClass(
+                                course.percentage,
+                              )}`}
+                              style={{
+                                width: `${course.percentage}%`,
+                              }}
+                            />
+                          </div>
+
+                          <span className="w-10 text-right text-xs font-bold text-gray-700">
+                            {course.percentage}%
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-6 py-5 text-center">
+                        <span
+                          className={`inline-flex rounded-full px-3 py-1.5 text-[10px] font-semibold ${getStatusClass(
+                            course.belowThreshold,
+                          )}`}
+                        >
+                          {course.belowThreshold ? "Below Minimum" : "Good"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
 
         {/* Recent attendance */}
@@ -385,61 +319,8 @@ export default function AttendancePage() {
             </div>
           </div>
 
-          <div className="divide-y divide-gray-100">
-            {recentRecords.map((record, index) => (
-              <div
-                key={`${record.date}-${record.course}-${index}`}
-                className="flex flex-col gap-3 px-6 py-4 transition hover:bg-gray-50 sm:flex-row sm:items-center"
-              >
-                {/* Date */}
-                <div className="w-37.5">
-                  <p className="text-xs font-semibold text-gray-800">
-                    {record.date}
-                  </p>
-
-                  <p className="mt-0.5 text-[10px] text-gray-400">
-                    {record.day}
-                  </p>
-                </div>
-
-                {/* Course */}
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-md bg-gray-100 px-2 py-1 text-[10px] font-bold text-gray-600">
-                      {record.course}
-                    </span>
-
-                    <span className="text-sm font-semibold text-gray-800">
-                      {record.name}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Status */}
-                <div>
-                  {record.status === "Present" && (
-                    <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-[10px] font-semibold text-emerald-600">
-                      <CheckCircle2 size={12} />
-                      Present
-                    </span>
-                  )}
-
-                  {record.status === "Absent" && (
-                    <span className="flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 text-[10px] font-semibold text-red-500">
-                      <XCircle size={12} />
-                      Absent
-                    </span>
-                  )}
-
-                  {record.status === "Late" && (
-                    <span className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-[10px] font-semibold text-amber-600">
-                      <Clock3 size={12} />
-                      Late
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div className="px-6 py-10 text-center text-sm text-gray-400">
+            No recent attendance records available.
           </div>
         </Card>
       </div>

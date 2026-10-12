@@ -1,7 +1,9 @@
 "use server";
 
-import { signIn } from "@/auth";
+import { signIn, auth } from "@/auth";
+import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
+import { resolveLoginRedirect } from "@/lib/auth-redirect";
 
 export async function login(_prevState: unknown, formData: FormData) {
   try {
@@ -10,7 +12,6 @@ export async function login(_prevState: unknown, formData: FormData) {
       password: formData.get("password"),
       redirect: false,
     });
-    return { success: true, error: undefined };
   } catch (error) {
     if (error instanceof AuthError) {
       switch (error.type) {
@@ -22,4 +23,10 @@ export async function login(_prevState: unknown, formData: FormData) {
     }
     throw error;
   }
+
+  const session = await auth();
+  const rawCallbackUrl = formData.get("callbackUrl");
+  const callbackUrl = typeof rawCallbackUrl === "string" ? rawCallbackUrl : undefined;
+
+  redirect(resolveLoginRedirect(session?.user?.role, callbackUrl));
 }

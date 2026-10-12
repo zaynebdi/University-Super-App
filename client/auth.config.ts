@@ -34,16 +34,30 @@ export const authConfig = {
           name: user.name,
           email: user.email,
           role: user.role,
+          assignedDepartment: user.assignedDepartment
+            ? user.assignedDepartment.toString()
+            : null,
         };
       },
     }),
   ],
   session: { strategy: "jwt" } as const,
   callbacks: {
-    async jwt({ token, user }: { token: JWT; user?: { id: string; role: "student" | "teacher" | "admin" } }) {
+    async jwt({
+      token,
+      user,
+    }: {
+      token: JWT;
+      user?: {
+        id: string;
+        role: "student" | "teacher" | "admin";
+        assignedDepartment?: string | null;
+      };
+    }) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+        token.assignedDepartment = user.assignedDepartment ?? null;
       }
       return token;
     },
@@ -51,9 +65,10 @@ export const authConfig = {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as "student" | "teacher" | "admin";
+        session.user.assignedDepartment = (token.assignedDepartment ??
+          null) as string | null;
       }
       return session;
     },
   },
-  pages: { signIn: "/login" },
 };

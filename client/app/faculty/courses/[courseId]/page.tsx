@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   BookOpen,
@@ -13,141 +14,29 @@ import {
   Plus,
   CalendarDays,
   MapPin,
-  Clock3,
   MoreHorizontal,
   Search,
   ChevronRight,
-  CheckCircle2,
   AlertCircle,
   TrendingUp,
   GraduationCap,
-  Download,
+  Loader2,
 } from "lucide-react";
 import Card from "@/components/ui/Card";
+import {
+  api,
+  ApiError,
+  type CourseDTO,
+  type CourseStudentDTO,
+  type TimetableEntryDTO,
+} from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
 
-type Student = {
-  id: string;
-  name: string;
-  studentId: string;
-  attendance: number;
-  grade: string;
-  performance: number;
-  status: "On Track" | "Needs Attention";
+type CourseDetailsData = {
+  course: CourseDTO;
+  students: CourseStudentDTO[];
+  timetable: TimetableEntryDTO[];
 };
-
-const course = {
-  code: "SE-401",
-  name: "Software Architecture",
-  description:
-    "Architectural patterns, distributed application design and scalable software systems.",
-  students: 42,
-  credits: 3,
-  attendance: 94,
-  performance: 88,
-  progress: 82,
-  room: "Lab 3",
-  schedule: "Monday · 09:00 AM",
-  semester: "Fall 2026",
-};
-
-const students: Student[] = [
-  {
-    id: "1",
-    name: "Ahmed Hassan",
-    studentId: "SE-2022-101",
-    attendance: 96,
-    grade: "A",
-    performance: 92,
-    status: "On Track",
-  },
-  {
-    id: "2",
-    name: "Ayesha Malik",
-    studentId: "SE-2022-102",
-    attendance: 94,
-    grade: "A-",
-    performance: 88,
-    status: "On Track",
-  },
-  {
-    id: "3",
-    name: "Hamza Ali",
-    studentId: "SE-2022-103",
-    attendance: 91,
-    grade: "B+",
-    performance: 84,
-    status: "On Track",
-  },
-  {
-    id: "4",
-    name: "Fatima Noor",
-    studentId: "SE-2022-105",
-    attendance: 82,
-    grade: "B",
-    performance: 76,
-    status: "Needs Attention",
-  },
-  {
-    id: "5",
-    name: "Usman Tariq",
-    studentId: "SE-2022-106",
-    attendance: 88,
-    grade: "B+",
-    performance: 81,
-    status: "On Track",
-  },
-  {
-    id: "6",
-    name: "Maham Khan",
-    studentId: "SE-2022-107",
-    attendance: 79,
-    grade: "C+",
-    performance: 68,
-    status: "Needs Attention",
-  },
-];
-
-const assignments = [
-  {
-    title: "Microservices Architecture Report",
-    type: "Report",
-    due: "26 Sep 2026",
-    submissions: "30 / 42",
-    status: "Active",
-  },
-  {
-    title: "Architecture Pattern Analysis",
-    type: "Assignment",
-    due: "02 Oct 2026",
-    submissions: "18 / 42",
-    status: "Active",
-  },
-  {
-    title: "Distributed System Design",
-    type: "Project",
-    due: "10 Oct 2026",
-    submissions: "0 / 42",
-    status: "Draft",
-  },
-];
-
-const resources = [
-  {
-    title: "Lecture 08 — Microservices Architecture",
-    type: "Lecture Slides",
-    size: "4.8 MB",
-  },
-  {
-    title: "Software Architecture Complete Notes",
-    type: "PDF Notes",
-    size: "2.1 MB",
-  },
-  {
-    title: "Architecture Patterns Reference",
-    type: "Reference",
-    size: "1.4 MB",
-  },
-];
 
 const tabs = [
   { id: "overview", label: "Overview" },
@@ -157,16 +46,72 @@ const tabs = [
 ];
 
 export default function FacultyCourseDetailsPage() {
+  const { courseId } = useParams<{ courseId: string }>();
   const [activeTab, setActiveTab] = useState("overview");
   const [studentSearch, setStudentSearch] = useState("");
+  const { data, loading, error } = useApiResource<CourseDetailsData>(async () => {
+    try {
+      const [course, students, timetable] = await Promise.all([
+        api.courses.get(courseId),
+        api.courses.students(courseId),
+        api.timetable.me(),
+      ]);
+      return { course, students, timetable };
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        throw new Error("Course not found");
+      }
+      throw e;
+    }
+  });
 
   const filteredStudents = useMemo(() => {
-    return students.filter(
+    const list = data?.students ?? [];
+    const q = studentSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
       (student) =>
-        student.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
-        student.studentId.toLowerCase().includes(studentSearch.toLowerCase()),
+        student.name.toLowerCase().includes(q) ||
+        student.rollNo.toLowerCase().includes(q) ||
+        student.email.toLowerCase().includes(q) ||
+        student.department.toLowerCase().includes(q),
     );
-  }, [studentSearch]);
+  }, [data, studentSearch]);
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-375">
+        <Card className="flex items-center gap-2 p-8 text-sm text-gray-500">
+          <Loader2 size={16} className="animate-spin" /> Loading course…
+        </Card>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="mx-auto max-w-375">
+        <Link
+          href="/faculty/courses"
+          className="mb-5 inline-flex items-center gap-2 text-xs font-semibold text-gray-500 transition hover:text-indigo-600"
+        >
+          <ArrowLeft size={15} />
+          Back to My Courses
+        </Link>
+
+        <Card className="flex flex-col items-center gap-2 p-12 text-center">
+          <AlertCircle size={22} className="text-gray-300" />
+          <p className="text-sm font-semibold text-gray-800">
+            {error ?? "Course not found"}
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
+  const course = data.course;
+  const students = data.students;
+  const slot = data.timetable.find((entry) => entry.courseId === courseId);
 
   return (
     <div className="mx-auto max-w-375">
@@ -196,40 +141,34 @@ export default function FacultyCourseDetailsPage() {
                     {course.code}
                   </span>
 
-                  <span className="rounded-full bg-emerald-400/10 px-2.5 py-1 text-[9px] font-bold text-emerald-300">
-                    ACTIVE
-                  </span>
-
                   <span className="rounded-full bg-white/10 px-2.5 py-1 text-[9px] font-semibold text-white/60">
-                    {course.semester}
+                    Semester {course.semester}
                   </span>
                 </div>
 
                 <h1 className="mt-2 text-2xl font-bold tracking-tight lg:text-3xl">
-                  {course.name}
+                  {course.title}
                 </h1>
-
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
-                  {course.description}
-                </p>
 
                 <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-white/45">
                   <span className="inline-flex items-center gap-1.5">
                     <Users size={13} />
-                    {course.students} students
+                    {students.length} students
                   </span>
 
                   <span className="inline-flex items-center gap-1.5">
                     <CalendarDays size={13} />
-                    {course.schedule}
+                    {slot ? `${slot.day} · ${slot.startTime}` : "No scheduled slot"}
                   </span>
 
-                  <span className="inline-flex items-center gap-1.5">
-                    <MapPin size={13} />
-                    {course.room}
-                  </span>
+                  {slot?.room && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <MapPin size={13} />
+                      {slot.room}
+                    </span>
+                  )}
 
-                  <span>{course.credits} credits</span>
+                  <span>{course.creditHours} credits</span>
                 </div>
               </div>
             </div>
@@ -253,28 +192,28 @@ export default function FacultyCourseDetailsPage() {
               <p className="text-[10px] uppercase tracking-wider text-white/35">
                 Students
               </p>
-              <p className="mt-1 text-xl font-bold">{course.students}</p>
+              <p className="mt-1 text-xl font-bold">{students.length}</p>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <p className="text-[10px] uppercase tracking-wider text-white/35">
                 Attendance
               </p>
-              <p className="mt-1 text-xl font-bold">{course.attendance}%</p>
+              <p className="mt-1 text-xl font-bold">—</p>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <p className="text-[10px] uppercase tracking-wider text-white/35">
                 Performance
               </p>
-              <p className="mt-1 text-xl font-bold">{course.performance}%</p>
+              <p className="mt-1 text-xl font-bold">—</p>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <p className="text-[10px] uppercase tracking-wider text-white/35">
                 Completion
               </p>
-              <p className="mt-1 text-xl font-bold">{course.progress}%</p>
+              <p className="mt-1 text-xl font-bold">—</p>
             </div>
           </div>
         </div>
@@ -329,22 +268,22 @@ export default function FacultyCourseDetailsPage() {
                 <div className="grid gap-6 sm:grid-cols-3">
                   <Metric
                     label="Average Score"
-                    value="88%"
-                    change="+4.2%"
-                    positive
+                    value="—"
+                    change="Not available"
+                    positive={false}
                   />
 
                   <Metric
                     label="Pass Rate"
-                    value="95%"
-                    change="+2.8%"
-                    positive
+                    value="—"
+                    change="Not available"
+                    positive={false}
                   />
 
                   <Metric
                     label="At Risk"
-                    value="4"
-                    change="students"
+                    value="—"
+                    change="Not available"
                     positive={false}
                   />
                 </div>
@@ -355,14 +294,11 @@ export default function FacultyCourseDetailsPage() {
                       Assessment performance
                     </span>
 
-                    <span className="text-xs font-bold text-gray-900">88%</span>
+                    <span className="text-xs font-bold text-gray-900">—</span>
                   </div>
 
                   <div className="h-3 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full bg-indigo-500"
-                      style={{ width: "88%" }}
-                    />
+                    <div className="h-full w-0 rounded-full bg-indigo-500" />
                   </div>
 
                   <div className="mt-3 flex justify-between text-[10px] text-gray-400">
@@ -373,9 +309,9 @@ export default function FacultyCourseDetailsPage() {
                 </div>
 
                 <div className="mt-7 grid gap-3 sm:grid-cols-3">
-                  <PerformanceBar label="Assignments" value={91} />
-                  <PerformanceBar label="Quizzes" value={86} />
-                  <PerformanceBar label="Projects" value={83} />
+                  <PerformanceBar label="Assignments" value={null} />
+                  <PerformanceBar label="Quizzes" value={null} />
+                  <PerformanceBar label="Projects" value={null} />
                 </div>
               </div>
             </Card>
@@ -423,77 +359,6 @@ export default function FacultyCourseDetailsPage() {
               </div>
             </Card>
           </div>
-
-          {/* Attendance + Upcoming */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card className="overflow-hidden">
-              <div className="border-b border-gray-100 p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-semibold text-gray-950">
-                      Attendance Overview
-                    </h2>
-                    <p className="mt-1 text-xs text-gray-400">
-                      Attendance distribution across the class.
-                    </p>
-                  </div>
-
-                  <ClipboardCheck size={18} className="text-emerald-500" />
-                </div>
-              </div>
-
-              <div className="space-y-5 p-6">
-                <AttendanceRow label="90% – 100%" count={31} percentage={74} />
-
-                <AttendanceRow label="80% – 89%" count={7} percentage={17} />
-
-                <AttendanceRow
-                  label="Below 80%"
-                  count={4}
-                  percentage={9}
-                  warning
-                />
-              </div>
-            </Card>
-
-            <Card className="overflow-hidden">
-              <div className="flex items-center justify-between border-b border-gray-100 p-6">
-                <div>
-                  <h2 className="font-semibold text-gray-950">Upcoming Work</h2>
-                  <p className="mt-1 text-xs text-gray-400">
-                    Important course deadlines.
-                  </p>
-                </div>
-
-                <FileText size={18} className="text-indigo-500" />
-              </div>
-
-              <div className="divide-y divide-gray-100">
-                {assignments.slice(0, 3).map((assignment) => (
-                  <div key={assignment.title} className="p-5">
-                    <div className="flex items-start gap-3">
-                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
-                        <FileText size={15} />
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-gray-900">
-                          {assignment.title}
-                        </p>
-
-                        <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-gray-400">
-                          <span>Due {assignment.due}</span>
-                          <span>{assignment.submissions} submitted</span>
-                        </div>
-                      </div>
-
-                      <ChevronRight size={15} className="mt-1 text-gray-300" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
         </div>
       )}
 
@@ -508,7 +373,7 @@ export default function FacultyCourseDetailsPage() {
                 </h2>
 
                 <p className="mt-1 text-xs text-gray-400">
-                  {course.students} students enrolled in {course.code}.
+                  {students.length} students enrolled in {course.code}.
                 </p>
               </div>
 
@@ -536,16 +401,16 @@ export default function FacultyCourseDetailsPage() {
                     Student
                   </th>
                   <th className="px-6 py-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                    Attendance
+                    Roll No
                   </th>
                   <th className="px-6 py-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                    Grade
+                    Department
                   </th>
                   <th className="px-6 py-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                    Performance
+                    Email
                   </th>
                   <th className="px-6 py-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                    Status
+                    Semester
                   </th>
                   <th />
                 </tr>
@@ -566,62 +431,33 @@ export default function FacultyCourseDetailsPage() {
                             .join("")}
                         </div>
 
-                        <div>
-                          <p className="text-xs font-semibold text-gray-900">
-                            {student.name}
-                          </p>
-
-                          <p className="mt-1 text-[10px] text-gray-400">
-                            {student.studentId}
-                          </p>
-                        </div>
+                        <p className="text-xs font-semibold text-gray-900">
+                          {student.name}
+                        </p>
                       </div>
                     </td>
 
                     <td className="px-6 py-4">
                       <span className="text-xs font-semibold text-gray-700">
-                        {student.attendance}%
+                        {student.rollNo}
+                      </span>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <span className="text-xs text-gray-600">
+                        {student.department}
+                      </span>
+                    </td>
+
+                    <td className="px-6 py-4">
+                      <span className="text-xs text-gray-600">
+                        {student.email}
                       </span>
                     </td>
 
                     <td className="px-6 py-4">
                       <span className="rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-600">
-                        {student.grade}
-                      </span>
-                    </td>
-
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-1.5 w-20 overflow-hidden rounded-full bg-gray-100">
-                          <div
-                            className="h-full rounded-full bg-indigo-500"
-                            style={{
-                              width: `${student.performance}%`,
-                            }}
-                          />
-                        </div>
-
-                        <span className="text-[10px] font-semibold text-gray-600">
-                          {student.performance}%
-                        </span>
-                      </div>
-                    </td>
-
-                    <td className="px-6 py-4">
-                      <span
-                        className={[
-                          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-bold",
-                          student.status === "On Track"
-                            ? "bg-emerald-50 text-emerald-600"
-                            : "bg-amber-50 text-amber-600",
-                        ].join(" ")}
-                      >
-                        {student.status === "On Track" ? (
-                          <CheckCircle2 size={11} />
-                        ) : (
-                          <AlertCircle size={11} />
-                        )}
-                        {student.status}
+                        {student.semester}
                       </span>
                     </td>
 
@@ -666,55 +502,14 @@ export default function FacultyCourseDetailsPage() {
             </button>
           </div>
 
-          <div className="divide-y divide-gray-100">
-            {assignments.map((assignment) => (
-              <div
-                key={assignment.title}
-                className="p-6 transition hover:bg-gray-50/60"
-              >
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                  <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
-                    <FileText size={18} />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-semibold text-gray-900">
-                        {assignment.title}
-                      </h3>
-
-                      <span
-                        className={[
-                          "rounded-full px-2 py-0.5 text-[9px] font-bold",
-                          assignment.status === "Active"
-                            ? "bg-emerald-50 text-emerald-600"
-                            : "bg-gray-100 text-gray-500",
-                        ].join(" ")}
-                      >
-                        {assignment.status}
-                      </span>
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[10px] text-gray-400">
-                      <span>{assignment.type}</span>
-                      <span>Due {assignment.due}</span>
-                      <span>{assignment.submissions} submissions</span>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button className="rounded-lg border border-gray-200 px-3 py-2 text-[10px] font-semibold text-gray-600 hover:bg-gray-50">
-                      Edit
-                    </button>
-
-                    <button className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 px-3 py-2 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-100">
-                      Review
-                      <ChevronRight size={12} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="py-14 text-center">
+            <FileText size={22} className="mx-auto text-gray-300" />
+            <p className="mt-3 text-sm font-semibold text-gray-700">
+              No assignments yet
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Assignments will appear once the assignments API is connected.
+            </p>
           </div>
         </Card>
       )}
@@ -736,39 +531,14 @@ export default function FacultyCourseDetailsPage() {
             </button>
           </div>
 
-          <div className="divide-y divide-gray-100">
-            {resources.map((resource) => (
-              <div
-                key={resource.title}
-                className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center"
-              >
-                <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
-                  <FileText size={18} />
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    {resource.title}
-                  </h3>
-
-                  <div className="mt-1 flex gap-4 text-[10px] text-gray-400">
-                    <span>{resource.type}</span>
-                    <span>{resource.size}</span>
-                  </div>
-                </div>
-
-                <div className="flex gap-2">
-                  <button className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-[10px] font-semibold text-gray-600 hover:bg-gray-50">
-                    <Download size={13} />
-                    Download
-                  </button>
-
-                  <button className="rounded-lg p-2 text-gray-400 hover:bg-gray-100">
-                    <MoreHorizontal size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div className="py-14 text-center">
+            <FileText size={22} className="mx-auto text-gray-300" />
+            <p className="mt-3 text-sm font-semibold text-gray-700">
+              No resources yet
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Resources will appear once the resources API is connected.
+            </p>
           </div>
         </Card>
       )}
@@ -786,9 +556,9 @@ export default function FacultyCourseDetailsPage() {
             </p>
 
             <p className="mt-1 text-xs leading-5 text-indigo-700/70">
-              This page is currently powered by mock data. Later, each tab will
-              connect to course, enrollment, attendance, assignment, submission,
-              grade and resource APIs.
+              Course details and enrolled students are powered by the course and
+              enrollment APIs. Attendance, assignment, submission, grade and
+              resource data will connect in a later phase.
             </p>
           </div>
         </div>
@@ -828,59 +598,26 @@ function Metric({
   );
 }
 
-function PerformanceBar({ label, value }: { label: string; value: number }) {
+function PerformanceBar({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | null;
+}) {
   return (
     <div className="rounded-xl border border-gray-100 p-3">
       <div className="flex justify-between">
         <span className="text-[10px] text-gray-400">{label}</span>
         <span className="text-[10px] font-semibold text-gray-700">
-          {value}%
+          {value === null ? "—" : `${value}%`}
         </span>
       </div>
 
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
         <div
           className="h-full rounded-full bg-indigo-500"
-          style={{ width: `${value}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function AttendanceRow({
-  label,
-  count,
-  percentage,
-  warning = false,
-}: {
-  label: string;
-  count: number;
-  percentage: number;
-  warning?: boolean;
-}) {
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs text-gray-500">{label}</span>
-
-        <span
-          className={[
-            "text-xs font-semibold",
-            warning ? "text-amber-600" : "text-gray-700",
-          ].join(" ")}
-        >
-          {count} students
-        </span>
-      </div>
-
-      <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-        <div
-          className={[
-            "h-full rounded-full",
-            warning ? "bg-amber-400" : "bg-indigo-500",
-          ].join(" ")}
-          style={{ width: `${percentage}%` }}
+          style={{ width: `${value ?? 0}%` }}
         />
       </div>
     </div>

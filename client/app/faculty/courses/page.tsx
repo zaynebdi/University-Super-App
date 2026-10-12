@@ -12,129 +12,54 @@ import {
   MoreHorizontal,
   Plus,
   ArrowUpRight,
-  Clock3,
-  MapPin,
   ChevronRight,
-  TrendingUp,
-  Filter,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import Card from "@/components/ui/Card";
+import {
+  api,
+  type CourseDTO,
+  type TeacherProfileDTO,
+} from "@/lib/api-client";
+import { useApiResource } from "@/lib/use-api-resource";
 
-type FacultyCourse = {
-  id: string;
-  code: string;
-  name: string;
-  description: string;
-  students: number;
-  attendance: number;
-  performance: number;
-  progress: number;
-  credits: number;
-  room: string;
-  schedule: string;
-  semester: string;
-  status: "Active" | "Completed";
+type Data = {
+  me: TeacherProfileDTO;
+  courses: CourseDTO[];
+  studentCounts: number[];
 };
-
-const facultyCourses: FacultyCourse[] = [
-  {
-    id: "se-401",
-    code: "SE-401",
-    name: "Software Architecture",
-    description:
-      "Architectural patterns, distributed application design and scalable software systems.",
-    students: 42,
-    attendance: 94,
-    performance: 88,
-    progress: 82,
-    credits: 3,
-    room: "Lab 3",
-    schedule: "Mon · 09:00 AM",
-    semester: "Fall 2026",
-    status: "Active",
-  },
-  {
-    id: "se-406",
-    code: "SE-406",
-    name: "Web Engineering",
-    description:
-      "Modern web application architecture, full-stack development and deployment.",
-    students: 48,
-    attendance: 91,
-    performance: 84,
-    progress: 76,
-    credits: 3,
-    room: "Lab 2",
-    schedule: "Tue · 11:00 AM",
-    semester: "Fall 2026",
-    status: "Active",
-  },
-  {
-    id: "se-407",
-    code: "SE-407",
-    name: "Software Testing",
-    description:
-      "Software quality assurance, testing strategies, automation and verification.",
-    students: 44,
-    attendance: 87,
-    performance: 79,
-    progress: 71,
-    credits: 3,
-    room: "B-112",
-    schedule: "Wed · 10:00 AM",
-    semester: "Fall 2026",
-    status: "Active",
-  },
-  {
-    id: "se-408",
-    code: "SE-408",
-    name: "Distributed Systems",
-    description:
-      "Distributed computing concepts, communication models and fault-tolerant systems.",
-    students: 52,
-    attendance: 89,
-    performance: 82,
-    progress: 68,
-    credits: 3,
-    room: "A-301",
-    schedule: "Fri · 02:00 PM",
-    semester: "Fall 2026",
-    status: "Active",
-  },
-];
-
-const filters = ["All", "Active", "Completed"];
 
 export default function FacultyCoursesPage() {
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("All");
+  const { data, loading, error } = useApiResource<Data>(async () => {
+    const me = await api.teachers.me();
+    const courses = await api.courses.list({ teacherId: me.id });
+    const studentCounts = await Promise.all(
+      courses.map((course) =>
+        api.courses.students(course.id).then((students) => students.length)
+      )
+    );
+    return { me, courses, studentCounts };
+  });
+
+  const courses = data?.courses ?? [];
+  const studentCounts = data?.studentCounts ?? [];
+  const studentsById = new Map(
+    courses.map((course, index) => [course.id, studentCounts[index] ?? 0])
+  );
+  const totalStudents = studentCounts.reduce((sum, count) => sum + count, 0);
 
   const filteredCourses = useMemo(() => {
-    return facultyCourses.filter((course) => {
-      const matchesSearch =
-        course.name.toLowerCase().includes(search.toLowerCase()) ||
-        course.code.toLowerCase().includes(search.toLowerCase());
-
-      const matchesFilter = filter === "All" || course.status === filter;
-
-      return matchesSearch && matchesFilter;
-    });
-  }, [search, filter]);
-
-  const totalStudents = facultyCourses.reduce(
-    (sum, course) => sum + course.students,
-    0,
-  );
-
-  const averageAttendance = Math.round(
-    facultyCourses.reduce((sum, course) => sum + course.attendance, 0) /
-      facultyCourses.length,
-  );
-
-  const averagePerformance = Math.round(
-    facultyCourses.reduce((sum, course) => sum + course.performance, 0) /
-      facultyCourses.length,
-  );
+    const list = data?.courses ?? [];
+    const q = search.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (course) =>
+        course.title.toLowerCase().includes(q) ||
+        course.code.toLowerCase().includes(q)
+    );
+  }, [data, search]);
 
   return (
     <div className="mx-auto max-w-375">
@@ -171,7 +96,7 @@ export default function FacultyCoursesPage() {
                 Assigned Courses
               </p>
               <h2 className="mt-2 text-2xl font-bold text-gray-950">
-                {facultyCourses.length}
+                {courses.length}
               </h2>
             </div>
 
@@ -180,7 +105,7 @@ export default function FacultyCoursesPage() {
             </div>
           </div>
 
-          <p className="mt-4 text-[11px] text-gray-400">Fall 2026 semester</p>
+          <p className="mt-4 text-[11px] text-gray-400">Current semester</p>
         </Card>
 
         <Card className="p-5">
@@ -210,9 +135,7 @@ export default function FacultyCoursesPage() {
               <p className="text-xs font-medium text-gray-500">
                 Average Attendance
               </p>
-              <h2 className="mt-2 text-2xl font-bold text-gray-950">
-                {averageAttendance}%
-              </h2>
+              <h2 className="mt-2 text-2xl font-bold text-gray-950">—</h2>
             </div>
 
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
@@ -220,9 +143,8 @@ export default function FacultyCoursesPage() {
             </div>
           </div>
 
-          <p className="mt-4 text-[11px] text-emerald-600">
-            <TrendingUp size={11} className="mr-1 inline" />
-            Healthy overall attendance
+          <p className="mt-4 text-[11px] text-gray-400">
+            Not available
           </p>
         </Card>
 
@@ -232,9 +154,7 @@ export default function FacultyCoursesPage() {
               <p className="text-xs font-medium text-gray-500">
                 Avg. Performance
               </p>
-              <h2 className="mt-2 text-2xl font-bold text-gray-950">
-                {averagePerformance}%
-              </h2>
+              <h2 className="mt-2 text-2xl font-bold text-gray-950">—</h2>
             </div>
 
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-violet-50 text-violet-600">
@@ -264,34 +184,22 @@ export default function FacultyCoursesPage() {
               className="h-11 w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 text-sm outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:bg-white"
             />
           </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto">
-            <div className="mr-1 hidden items-center gap-2 text-xs font-medium text-gray-400 sm:flex">
-              <Filter size={14} />
-              Filter
-            </div>
-
-            {filters.map((item) => (
-              <button
-                key={item}
-                onClick={() => setFilter(item)}
-                className={[
-                  "whitespace-nowrap rounded-xl px-4 py-2.5 text-xs font-semibold transition",
-                  filter === item
-                    ? "bg-indigo-600 text-white"
-                    : "border border-gray-200 bg-white text-gray-500 hover:bg-gray-50",
-                ].join(" ")}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
         </div>
       </Card>
 
-      {/* Course Grid */}
-      <div className="grid gap-5 xl:grid-cols-2">
-        {filteredCourses.map((course) => (
+      {error && (
+        <Card className="mb-5 flex items-center gap-2 border-red-100 p-5 text-sm text-red-600">
+          <AlertCircle size={16} /> {error}
+        </Card>
+      )}
+
+      {loading ? (
+        <Card className="mb-5 flex items-center gap-2 p-8 text-sm text-gray-500">
+          <Loader2 size={16} className="animate-spin" /> Loading courses…
+        </Card>
+      ) : (
+        <div className="grid gap-5 xl:grid-cols-2">
+          {filteredCourses.map((course) => (
           <Card
             key={course.id}
             className="overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md"
@@ -311,17 +219,13 @@ export default function FacultyCoursesPage() {
                       </span>
 
                       <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600">
-                        {course.status}
+                        Semester {course.semester}
                       </span>
                     </div>
 
                     <h2 className="mt-1 text-lg font-bold text-gray-950">
-                      {course.name}
+                      {course.title}
                     </h2>
-
-                    <p className="mt-2 text-xs leading-5 text-gray-400">
-                      {course.description}
-                    </p>
                   </div>
                 </div>
 
@@ -333,20 +237,10 @@ export default function FacultyCoursesPage() {
               <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[11px] text-gray-400">
                 <span className="inline-flex items-center gap-1.5">
                   <Users size={13} />
-                  {course.students} students
+                  {studentsById.get(course.id) ?? 0} students
                 </span>
 
-                <span className="inline-flex items-center gap-1.5">
-                  <Clock3 size={13} />
-                  {course.schedule}
-                </span>
-
-                <span className="inline-flex items-center gap-1.5">
-                  <MapPin size={13} />
-                  {course.room}
-                </span>
-
-                <span>{course.credits} credits</span>
+                <span>{course.creditHours} credits</span>
               </div>
             </div>
 
@@ -354,23 +248,17 @@ export default function FacultyCoursesPage() {
             <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-100">
               <div className="p-4 text-center">
                 <p className="text-[10px] text-gray-400">Attendance</p>
-                <p className="mt-1 text-lg font-bold text-gray-900">
-                  {course.attendance}%
-                </p>
+                <p className="mt-1 text-lg font-bold text-gray-900">—</p>
               </div>
 
               <div className="p-4 text-center">
                 <p className="text-[10px] text-gray-400">Performance</p>
-                <p className="mt-1 text-lg font-bold text-gray-900">
-                  {course.performance}%
-                </p>
+                <p className="mt-1 text-lg font-bold text-gray-900">—</p>
               </div>
 
               <div className="p-4 text-center">
                 <p className="text-[10px] text-gray-400">Progress</p>
-                <p className="mt-1 text-lg font-bold text-gray-900">
-                  {course.progress}%
-                </p>
+                <p className="mt-1 text-lg font-bold text-gray-900">—</p>
               </div>
             </div>
 
@@ -382,15 +270,12 @@ export default function FacultyCoursesPage() {
                 </span>
 
                 <span className="text-[10px] font-semibold text-gray-600">
-                  {course.progress}%
+                  —
                 </span>
               </div>
 
               <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
-                <div
-                  className="h-full rounded-full bg-indigo-500"
-                  style={{ width: `${course.progress}%` }}
-                />
+                <div className="h-full w-0 rounded-full bg-indigo-500" />
               </div>
 
               {/* Actions */}
@@ -420,24 +305,25 @@ export default function FacultyCoursesPage() {
               </div>
             </div>
           </Card>
-        ))}
-      </div>
+          ))}
 
-      {/* Empty state */}
-      {filteredCourses.length === 0 && (
-        <Card className="py-16 text-center">
-          <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-gray-100 text-gray-400">
-            <BookOpen size={20} />
-          </div>
+          {/* Empty state */}
+          {filteredCourses.length === 0 && (
+            <Card className="py-16 text-center xl:col-span-2">
+              <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-gray-100 text-gray-400">
+                <BookOpen size={20} />
+              </div>
 
-          <h3 className="mt-4 text-sm font-semibold text-gray-900">
-            No courses found
-          </h3>
+              <h3 className="mt-4 text-sm font-semibold text-gray-900">
+                No courses found
+              </h3>
 
-          <p className="mt-1 text-xs text-gray-400">
-            Try changing your search or filter.
-          </p>
-        </Card>
+              <p className="mt-1 text-xs text-gray-400">
+                Try changing your search.
+              </p>
+            </Card>
+          )}
+        </div>
       )}
 
       {/* Academic summary */}
@@ -451,15 +337,16 @@ export default function FacultyCoursesPage() {
             </div>
 
             <p className="mt-2 max-w-2xl text-xs leading-5 text-gray-400">
-              Your assigned courses currently have an average attendance of{" "}
+              You are assigned{" "}
               <span className="font-semibold text-gray-700">
-                {averageAttendance}%
+                {courses.length} courses
               </span>{" "}
-              and average student performance of{" "}
+              with{" "}
               <span className="font-semibold text-gray-700">
-                {averagePerformance}%
+                {totalStudents} enrolled students
               </span>
-              .
+              . Attendance and performance metrics will appear once assessment
+              data is available.
             </p>
           </div>
 
@@ -483,9 +370,9 @@ export default function FacultyCoursesPage() {
             </p>
 
             <p className="mt-1 text-xs leading-5 text-indigo-700/70">
-              Course cards and metrics are currently powered by mock data. Later
-              they will connect to faculty course, enrollment, attendance,
-              assignment and grade APIs.
+              Course cards are powered by the faculty course and enrollment
+              APIs. Attendance, assignment and grade metrics will connect in a
+              later phase.
             </p>
           </div>
         </div>
