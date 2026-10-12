@@ -8,6 +8,10 @@ vi.mock("@/lib/db", () => ({
   default: vi.fn().mockResolvedValue({}),
 }));
 
+vi.mock("@/lib/enroll-field", () => ({
+  enrollFieldStudents: vi.fn(),
+}));
+
 vi.mock("@/lib/models", () => ({
   Field: {
     find: vi.fn(),
@@ -24,6 +28,9 @@ vi.mock("@/lib/models", () => ({
     find: vi.fn(),
     countDocuments: vi.fn(),
   },
+  Student: {
+    countDocuments: vi.fn(),
+  },
 }));
 
 import { GET as getFields, POST as createField } from "@/app/api/fields/route";
@@ -32,8 +39,10 @@ import {
   PUT as updateField,
   DELETE as deleteField,
 } from "@/app/api/fields/[id]/route";
+import { POST as enrollField } from "@/app/api/fields/[id]/enroll/route";
 import { auth } from "@/lib/auth-server";
-import { Field, Department, Course } from "@/lib/models";
+import { Field, Department, Course, Student } from "@/lib/models";
+import { enrollFieldStudents } from "@/lib/enroll-field";
 
 const mockAuth = vi.mocked(auth) as unknown as {
   mockResolvedValue: (value: unknown) => void;
@@ -41,6 +50,8 @@ const mockAuth = vi.mocked(auth) as unknown as {
 const mockField = vi.mocked(Field);
 const mockDepartment = vi.mocked(Department);
 const mockCourse = vi.mocked(Course);
+const mockStudent = vi.mocked(Student);
+const mockEnrollFieldStudents = vi.mocked(enrollFieldStudents);
 
 const ADMIN = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const FIELD_ID = "111111111111111111111111";
@@ -48,6 +59,8 @@ const FIELD_OTHER = "222222222222222222222222";
 const DEPT_ID = "333333333333333333333333";
 const DEPT_OTHER = "444444444444444444444444";
 const COURSE_ID = "555555555555555555555555";
+const STUDENT_ID = "666666666666666666666666";
+const STUDENT_OTHER = "777777777777777777777777";
 
 function createMockRequest(url: string, method = "GET", body?: unknown): Request {
   return new Request(url, { method, body: body ? JSON.stringify(body) : undefined });
@@ -490,6 +503,87 @@ describe("Fields API", () => {
       });
       expect(res.status).toBe(403);
       expect(mockField.findByIdAndDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("POST /api/fields/:id/enroll", () => {
+    const enroll = (studentIds: string[], id = FIELD_ID) =>
+      enrollField(
+        createMockRequest(`http://localhost/api/fields/${id}/enroll`, "POST", { studentIds }),
+        { params: Promise.resolve({ id }) }
+      );
+
+    it("returns 403 for non-admin users", async () => {
+      mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "teacher" } } as any);
+      const res = await enroll([STUDENT_ID]);
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 400 for an invalid field ID", async () => {
+      mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+      const res = await enroll([STUDENT_ID], "nope");
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 for an empty student list", async () => {
+      mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+      const res = await enroll([]);
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 404 when the field does not exist", async () => {
+      mockAuth.mockResolvedValue({ user: { id: ADMIN, role: "admin" } } as any);
+      mockField.findById.mockReturnValue(lean(null));
+      const res = await enroll([STUDENT_ID]);
+      expect(res.status).toBe(404);
+    });
+
+    it("enrolls students as a department admin in their own department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: ADMIN, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      mockField.findById.mockReturnValue(
+        lean(fieldLean({ departmentId: DEPT_ID, isActive: true }))
+      );
+      mockStudent.countDocuments.mockResolvedValue(1);
+      mockEnrollFieldStudents.mockResolvedValue({
+        enrolled: 1,
+        alreadyEnrolled: 0,
+      } as never);
+
+      const res = await enroll([STUDENT_ID]);
+      expect(res.status).toBe(200);
+      expect(mockStudent.countDocuments).toHaveBeenCalledWith({
+        _id: { $in: [STUDENT_ID] },
+        departmentId: DEPT_ID,
+      });
+      expect(mockEnrollFieldStudents).toHaveBeenCalledWith(FIELD_ID, [STUDENT_ID]);
+    });
+
+    it("returns 403 when a department admin enrolls for another department's field", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: ADMIN, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      mockField.findById.mockReturnValue(
+        lean(fieldLean({ departmentId: DEPT_OTHER, isActive: true }))
+      );
+      const res = await enroll([STUDENT_ID]);
+      expect(res.status).toBe(403);
+      expect(mockEnrollFieldStudents).not.toHaveBeenCalled();
+    });
+
+    it("returns 403 when a department admin selects students from another department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: ADMIN, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      mockField.findById.mockReturnValue(
+        lean(fieldLean({ departmentId: DEPT_ID, isActive: true }))
+      );
+      mockStudent.countDocuments.mockResolvedValue(0);
+
+      const res = await enroll([STUDENT_ID, STUDENT_OTHER]);
+      expect(res.status).toBe(403);
+      expect(mockEnrollFieldStudents).not.toHaveBeenCalled();
     });
   });
 });

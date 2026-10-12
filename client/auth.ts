@@ -5,13 +5,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   callbacks: {
     ...authConfig.callbacks,
-    async session({ session, token }) {
-      if (session.user) {
-session.user.id = token.id as string;
-      session.user.role = token.role as "student" | "teacher" | "admin";
-      }
-      return session;
-    },
+    // NOTE: the `session` callback comes from auth.config.ts. It copies
+    // `id`, `role` AND `assignedDepartment` from the JWT into session.user.
+    // Overriding it here would silently drop the department scope, turning
+    // every department admin into a super admin at runtime (tests that mock
+    // sessions directly do not catch this). Keep `authorized` (auth.config
+    // has no `authorized` callback, so spreading it in is safe).
     async authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
       const isOnLogin = nextUrl.pathname.startsWith("/login");

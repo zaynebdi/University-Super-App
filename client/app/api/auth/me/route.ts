@@ -10,5 +10,6 @@ export async function GET() {
     name: session.user.name,
     email: session.user.email,
     role: session.user.role,
+    assignedDepartment: session.user.assignedDepartment ?? null,
   });
 }

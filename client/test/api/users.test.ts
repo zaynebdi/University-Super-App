@@ -343,6 +343,55 @@ describe("Users API", () => {
       expect(res.status).toBe(200);
     });
 
+    it("returns 200 when a department admin views a user of their own department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      mockUser.findById.mockReturnValue(
+        userChain({
+          _id: USER_OTHER, name: "Student", email: "s@test.com", role: "student", phone: "123", photo: null, isActive: true, createdAt: new Date(), updatedAt: new Date(),
+        })
+      );
+      mockStudent.findOne.mockReturnValue(profileChain(DEPT_ID));
+      mockTeacher.findOne.mockReturnValue(profileChain(null));
+
+      const req = createMockRequest("http://localhost/api/users/" + USER_OTHER);
+      const res = await getUser(req, { params: Promise.resolve({ id: USER_OTHER }) });
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 403 when a department admin views a user of another department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      mockUser.findById.mockReturnValue(
+        userChain({
+          _id: USER_OTHER, name: "Student", email: "s@test.com", role: "student", phone: "123", photo: null, isActive: true, createdAt: new Date(), updatedAt: new Date(),
+        })
+      );
+      mockStudent.findOne.mockReturnValue(profileChain(DEPT_OTHER));
+      mockTeacher.findOne.mockReturnValue(profileChain(null));
+
+      const req = createMockRequest("http://localhost/api/users/" + USER_OTHER);
+      const res = await getUser(req, { params: Promise.resolve({ id: USER_OTHER }) });
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 403 when a department admin views an admin account", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPT_ID },
+      } as any);
+      mockUser.findById.mockReturnValue(
+        userChain({
+          _id: USER_OTHER, name: "Admin", email: "a@test.com", role: "admin", phone: "123", photo: null, isActive: true, createdAt: new Date(), updatedAt: new Date(),
+        })
+      );
+
+      const req = createMockRequest("http://localhost/api/users/" + USER_OTHER);
+      const res = await getUser(req, { params: Promise.resolve({ id: USER_OTHER }) });
+      expect(res.status).toBe(403);
+    });
+
     it("returns 404 when user not found", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } } as any);
       mockUser.findById.mockReturnValue({

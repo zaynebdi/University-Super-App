@@ -15,6 +15,7 @@ vi.mock("@/lib/models", () => ({
 
 import { GET as getStudentMe } from "@/app/api/students/me/route";
 import { GET as getTeacherMe } from "@/app/api/teachers/me/route";
+import { GET as getAuthMe } from "@/app/api/auth/me/route";
 import { auth } from "@/lib/auth-server";
 import { Student, Teacher } from "@/lib/models";
 
@@ -30,6 +31,43 @@ function chainPopulateLean(value: unknown) {
 describe("Profile me endpoints", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("GET /api/auth/me", () => {
+    it("returns 401 when unauthenticated", async () => {
+      (auth as any).mockResolvedValue(null);
+      const res = await getAuthMe();
+      expect(res.status).toBe(401);
+    });
+
+    it("returns the assignedDepartment for a department admin", async () => {
+      (auth as any).mockResolvedValue({
+        user: {
+          id: "ddd111111111111111111111",
+          name: "Dept Admin",
+          email: "dept@x.com",
+          role: "admin",
+          assignedDepartment: "333333333333333333333333",
+        },
+      });
+      const res = await getAuthMe();
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.id).toBe("ddd111111111111111111111");
+      expect(json.data.role).toBe("admin");
+      expect(json.data.assignedDepartment).toBe(
+        "333333333333333333333333"
+      );
+    });
+
+    it("returns a null assignedDepartment when the admin has no scope", async () => {
+      (auth as any).mockResolvedValue({
+        user: { id: "aaaa", name: "Super", email: "s@x.com", role: "admin" },
+      });
+      const res = await getAuthMe();
+      const json = await res.json();
+      expect(json.data.assignedDepartment).toBeNull();
+    });
   });
 
   describe("GET /api/students/me", () => {

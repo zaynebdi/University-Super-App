@@ -674,6 +674,49 @@ describe("Courses API", () => {
       );
     });
 
+    it("allows a department admin to update a course of their own department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPARTMENT_ID },
+      } as any);
+      mockCourse.findById
+        .mockReturnValueOnce(chainLean(courseLean({ departmentId: DEPARTMENT_ID })))
+        .mockReturnValue(
+          chainLean(
+            courseLean({
+              departmentId: { _id: DEPARTMENT_ID, name: "Computer Science", code: "CS" },
+            })
+          )
+        );
+      mockCourse.findByIdAndUpdate.mockResolvedValue({} as any);
+
+      const res = await updateCourse(
+        createMockRequest("http://localhost/api/courses/" + COURSE_ID, "PUT", { title: "New Title" }),
+        { params: Promise.resolve({ id: COURSE_ID }) }
+      );
+      expect(res.status).toBe(200);
+      expect(mockCourse.findByIdAndUpdate).toHaveBeenCalledWith(
+        COURSE_ID,
+        { title: "New Title" },
+        { new: true }
+      );
+    });
+
+    it("returns 403 when a department admin updates another department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPARTMENT_ID },
+      } as any);
+      mockCourse.findById.mockReturnValue(
+        chainLean(courseLean({ departmentId: DEPARTMENT_OTHER }))
+      );
+
+      const res = await updateCourse(
+        createMockRequest("http://localhost/api/courses/" + COURSE_ID, "PUT", { title: "New Title" }),
+        { params: Promise.resolve({ id: COURSE_ID }) }
+      );
+      expect(res.status).toBe(403);
+      expect(mockCourse.findByIdAndUpdate).not.toHaveBeenCalled();
+    });
+
     it("returns 500 on database error", async () => {
       mockAuth.mockResolvedValue({ user: { id: USER_SELF, role: "admin" } });
       mockCourse.findById.mockImplementation(() => {
@@ -750,6 +793,38 @@ describe("Courses API", () => {
 
       expect(res.status).toBe(500);
       expect(session.endSession).toHaveBeenCalled();
+    });
+
+    it("allows a department admin to delete a course of their own department", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPARTMENT_ID },
+      } as any);
+      mockCourse.findById.mockReturnValue(
+        chainLean(courseLean({ departmentId: DEPARTMENT_ID }))
+      );
+      const session = makeSession();
+      mockStartSession.mockResolvedValue(session);
+      mockCourse.findByIdAndDelete.mockResolvedValue(courseLean());
+
+      const res = await deleteCourse(createMockRequest("http://localhost/api/courses/" + COURSE_ID, "DELETE"), {
+        params: Promise.resolve({ id: COURSE_ID }),
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 403 when a department admin deletes another department's course", async () => {
+      mockAuth.mockResolvedValue({
+        user: { id: USER_SELF, role: "admin", assignedDepartment: DEPARTMENT_ID },
+      } as any);
+      mockCourse.findById.mockReturnValue(
+        chainLean(courseLean({ departmentId: DEPARTMENT_OTHER }))
+      );
+
+      const res = await deleteCourse(createMockRequest("http://localhost/api/courses/" + COURSE_ID, "DELETE"), {
+        params: Promise.resolve({ id: COURSE_ID }),
+      });
+      expect(res.status).toBe(403);
+      expect(mockCourse.findByIdAndDelete).not.toHaveBeenCalled();
     });
 
     it("returns 500 when the database errors", async () => {
